@@ -2,7 +2,7 @@ package rdp
 
 import "net/http"
 
-type RDPWebServer struct{}
+type RDPSocketConnect struct{}
 
 func (server *RDPWebServer) StartWebRTC(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
