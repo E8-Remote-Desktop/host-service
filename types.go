@@ -1,14 +1,13 @@
 package rdp
 
 type Input interface {
-	StartDataChannel()
+	AcceptDataChannel()
 }
 
-type Video interface {
-	IngestWhip()
-	StartMediaChannel()
+type AudioVideo interface {
+	AttachMediaChannel()
 }
 
-type WhipEndpoint interface {
-	StartWebServer()
+type WebRTCConnect interface {
+	Start()
 }
