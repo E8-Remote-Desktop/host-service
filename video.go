@@ -9,14 +9,14 @@ import (
 )
 
 type RDPAudioVideo struct {
-	PeerConnection *webrtc.PeerConnection
+	rtpStreamGoing bool
 }
 
 func (video *RDPAudioVideo) StartStream() {
 
 }
 
-func (video *RDPAudioVideo) AttachMediaChannel() {
+func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnection) {
 	video.StartStream()
 	// Create tracks
 	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
@@ -30,29 +30,48 @@ func (video *RDPAudioVideo) AttachMediaChannel() {
 		panic(err)
 	}
 
+	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo)
+	if err != nil {
+		panic(err)
+	}
+	audioTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio)
+	if err != nil {
+		panic(err)
+	}
+
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
-		"video",
-		"rdp-video",
+		"audio",
+		"rdp-audio",
 	)
 	if err != nil {
-		log.Fatal("Failed to create video track")
 		panic(err)
 	}
 
 	// Add tracks
-	_, err = video.PeerConnection.AddTrack(videoTrack)
-	if err != nil {
-		panic(err)
+	if videoTransceiver.Sender() != nil {
+		videoTransceiver.Sender().ReplaceTrack(videoTrack)
+	} else {
+		log.Printf("Video transceiver does not have sender I hate you chatgpt")
 	}
-	_, err = video.PeerConnection.AddTrack(audioTrack)
-	if err != nil {
-		panic(err)
+
+	if audioTransceiver.Sender() != nil {
+		audioTransceiver.Sender().ReplaceTrack(audioTrack)
+	} else {
+		log.Printf("Audio transceiver does not have sender I hate you chatgpt")
 	}
 
 	// RTP Loop to injest the RTP frames
-	go video.receiveRTPAndForward("127.0.0.1:5004", audioTrack)
-	go video.receiveRTPAndForward("127.0.0.1:5005", videoTrack)
+	log.Printf("Starting Media Stream")
+	if !video.rtpStreamGoing {
+		log.Println("RTP Stream Started, running fuse tripped")
+		go video.receiveRTPAndForward("127.0.0.1:50045", audioTrack)
+		go video.receiveRTPAndForward("127.0.0.1:50055", videoTrack)
+		video.rtpStreamGoing = true
+	} else {
+		log.Println("\033[31mRTP Stream request IGNORED, already running for another track\033[0m")
+	}
+
 }
 
 func (video *RDPAudioVideo) receiveRTPAndForward(listenAddr string, track *webrtc.TrackLocalStaticRTP) {
@@ -84,9 +103,11 @@ func (video *RDPAudioVideo) receiveRTPAndForward(listenAddr string, track *webrt
 		}
 
 		// Write the RTP packet to the WebRTC track
-		if _, writeErr := track.Write(raw); writeErr != nil {
+		_, writeErr := track.Write(raw)
+		if writeErr != nil {
 			log.Printf("Failed to write RTP to track: %v", writeErr)
 		}
-		log.Println("SENT RTP PACKET TO CLIENT")
+		//log.Printf("SENT RTP %d PACKETs TO CLIENT", n)
+		//log.Printf("Received RTP Packet: SSRC=%d Seq=%d TS=%d", packet.SSRC, packet.SequenceNumber, packet.Timestamp)
 	}
 }

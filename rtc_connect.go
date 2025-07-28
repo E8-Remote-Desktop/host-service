@@ -31,8 +31,12 @@ func (connector *RDPWebRTCConnect) Start() {
 	log.Println("Host has connected to broker websocket, waiting for client connection...")
 
 	var peerConnection *webrtc.PeerConnection
+
+	var captureStream AudioVideo = &RDPAudioVideo{}
+	var pendingCandidates []*webrtc.ICECandidateInit
 	for {
 		_, msgBytes, err := conn.ReadMessage()
+		//log.Println("Recieved message?")
 		if err != nil {
 			log.Fatal("Error reading WebSocket:", err)
 		}
@@ -47,6 +51,13 @@ func (connector *RDPWebRTCConnect) Start() {
 		switch msg.Type {
 		case "offer":
 			// Create peer connection
+			log.Println("Received SDP offer")
+			if peerConnection != nil {
+				log.Println("Closing old PeerConnection before accepting new offer")
+				peerConnection.Close()
+				peerConnection = nil
+			}
+
 			peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
 				ICEServers: []webrtc.ICEServer{
 					{
@@ -61,31 +72,12 @@ func (connector *RDPWebRTCConnect) Start() {
 				log.Fatal(err)
 			}
 
-			log.Println("Received SDP offer")
-
-			// Handle ICE candidates from this peer
-			peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
-
-				if c == nil {
-					return
-				}
-
-				candidate := c.ToJSON()
-
-				candidateMsg := SignalMessage{
-					Type:      "ice",
-					Candidate: &candidate,
-				}
-				candidateJSON, _ := json.Marshal(candidateMsg)
-				conn.WriteMessage(websocket.TextMessage, candidateJSON)
-			})
 			// Data channel accept (client opens the input data channel on the browser side)
 			var input Input = &RDPInput{PeerConnection: peerConnection}
 			input.AcceptDataChannel()
 
 			// Attach media channel
-			var captureStream AudioVideo = &RDPAudioVideo{PeerConnection: peerConnection}
-			captureStream.AttachMediaChannel()
+			captureStream.AttachMediaChannel(peerConnection)
 
 			// Set remote offer
 			offer := webrtc.SessionDescription{
@@ -97,6 +89,13 @@ func (connector *RDPWebRTCConnect) Start() {
 			if err != nil {
 				log.Fatal(err)
 			}
+
+			for _, candidate := range pendingCandidates {
+				if err := peerConnection.AddICECandidate(*candidate); err != nil {
+					log.Println("Error adding pending ICE candidate:", err)
+				}
+			}
+			pendingCandidates = nil
 
 			// Create answer
 			answer, err := peerConnection.CreateAnswer(nil)
@@ -116,14 +115,35 @@ func (connector *RDPWebRTCConnect) Start() {
 			}
 
 			answerJSON, _ := json.Marshal(answerMsg)
-			conn.WriteMessage(websocket.TextMessage, answerJSON)
+			err = conn.WriteMessage(websocket.TextMessage, answerJSON)
+			if err != nil {
+				log.Fatalf("Could not send SDP Answer %v", err)
+			}
 
-			log.Println("Sent SDP answer")
+			log.Printf("Sent SDP answer %s", string(answerJSON))
+
+			// Handle ICE candidates from this peer
+			peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+
+				if c == nil {
+					return
+				}
+
+				candidate := c.ToJSON()
+
+				candidateMsg := SignalMessage{
+					Type:      "ice",
+					Candidate: &candidate,
+				}
+				candidateJSON, _ := json.Marshal(candidateMsg)
+				conn.WriteMessage(websocket.TextMessage, candidateJSON)
+			})
 
 		case "ice":
-			log.Println("Received ICE candidate")
+			log.Printf("Received ICE candidate %s\n", msg.Candidate.Candidate)
 			if peerConnection == nil {
-				log.Println("Missed packets?! ICE Candidates recieved before offer.")
+				log.Println("Missed packets?! ICE Candidates recieved before offer, queuing")
+				pendingCandidates = append(pendingCandidates, msg.Candidate)
 				continue
 			}
 
