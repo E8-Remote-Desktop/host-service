@@ -20,7 +20,7 @@ type RDPWebRTCConnect struct{}
 // Also handles the socket connection
 func (connector *RDPWebRTCConnect) Start() {
 	// Create the peer connection
-	u := url.URL{Scheme: "ws", Host: "127.0.0.1:8080", Path: "/"}
+	u := url.URL{Scheme: "ws", Host: "192.168.1.231:8080", Path: "/"}
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		log.Fatal("Error connecting to websocket server")
@@ -33,6 +33,7 @@ func (connector *RDPWebRTCConnect) Start() {
 	var peerConnection *webrtc.PeerConnection
 
 	var captureStream AudioVideo = &RDPAudioVideo{}
+	var input Input = GetInput()
 	var pendingCandidates []*webrtc.ICECandidateInit
 	for {
 		_, msgBytes, err := conn.ReadMessage()
@@ -52,6 +53,11 @@ func (connector *RDPWebRTCConnect) Start() {
 		case "offer":
 			// Create peer connection
 			log.Println("Received SDP offer")
+
+			// close will only actually do anything if anything can be closed
+			captureStream.Close()
+			input.Close()
+
 			if peerConnection != nil {
 				log.Println("Closing old PeerConnection before accepting new offer")
 				peerConnection.Close()
@@ -73,8 +79,10 @@ func (connector *RDPWebRTCConnect) Start() {
 			}
 
 			// Data channel accept (client opens the input data channel on the browser side)
-			var input Input = &RDPInput{PeerConnection: peerConnection}
-			input.AcceptDataChannel()
+			if err := input.Init(); err != nil {
+				log.Fatalf("Could not init input %v\n", err)
+			}
+			input.AcceptDataChannel(peerConnection)
 
 			// Attach media channel
 			captureStream.AttachMediaChannel(peerConnection)
@@ -138,6 +146,13 @@ func (connector *RDPWebRTCConnect) Start() {
 				candidateJSON, _ := json.Marshal(candidateMsg)
 				conn.WriteMessage(websocket.TextMessage, candidateJSON)
 			})
+			// Logging
+			//peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+			//if state == webrtc.ICEConnectionStateConnected {
+
+			//log.Printf("Connection has been established, path: %s", peerConnection.)
+			//}
+			//})
 
 		case "ice":
 			log.Printf("Received ICE candidate %s\n", msg.Candidate.Candidate)

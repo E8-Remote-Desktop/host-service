@@ -1,41 +1,55 @@
 package rdp
 
 import (
+	"context"
 	"log"
 	"net"
+	"sync"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
 
 type RDPAudioVideo struct {
-	rtpStreamGoing bool
+	cancelRTPTrackInjest context.CancelFunc
+	streamWaitGroup      sync.WaitGroup
+	streamsMutex         sync.Mutex
+	isClosing            bool
 }
 
 func (video *RDPAudioVideo) StartStream() {
-
 }
 
 func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnection) {
-	video.StartStream()
-	// Create tracks
-	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
-		"video",
-		"rdp-video",
-	)
+	video.streamsMutex.Lock()
+	defer video.streamsMutex.Unlock()
 
-	if err != nil {
-		log.Fatal("Failed to create video track")
-		panic(err)
+	if video.cancelRTPTrackInjest != nil {
+		log.Printf("WARNING: Closing RTP Injest Loops before attaching to media, call close before this!\n")
+		video.Close()
 	}
 
+	video.isClosing = false
+	video.StartStream()
+
+	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo)
 	if err != nil {
 		panic(err)
 	}
 	audioTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio)
 	if err != nil {
+		panic(err)
+	}
+
+	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
+		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
+		"video",
+		"rdp-video",
+	)
+	if err != nil {
+		log.Fatal("Failed to create video track")
 		panic(err)
 	}
 
@@ -51,63 +65,160 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	// Add tracks
 	if videoTransceiver.Sender() != nil {
 		videoTransceiver.Sender().ReplaceTrack(videoTrack)
-	} else {
-		log.Printf("Video transceiver does not have sender I hate you chatgpt")
 	}
-
 	if audioTransceiver.Sender() != nil {
 		audioTransceiver.Sender().ReplaceTrack(audioTrack)
-	} else {
-		log.Printf("Audio transceiver does not have sender I hate you chatgpt")
 	}
 
 	// RTP Loop to injest the RTP frames
-	log.Printf("Starting Media Stream")
-	if !video.rtpStreamGoing {
-		log.Println("RTP Stream Started, running fuse tripped")
-		go video.receiveRTPAndForward("127.0.0.1:50045", audioTrack)
-		go video.receiveRTPAndForward("127.0.0.1:50055", videoTrack)
-		video.rtpStreamGoing = true
-	} else {
-		log.Println("\033[31mRTP Stream request IGNORED, already running for another track\033[0m")
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	video.cancelRTPTrackInjest = cancel
 
+	log.Printf("Starting Media Stream")
+	log.Println("RTP Stream Started")
+
+	video.streamWaitGroup.Add(2)
+	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack)
+	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack)
 }
 
-func (video *RDPAudioVideo) receiveRTPAndForward(listenAddr string, track *webrtc.TrackLocalStaticRTP) {
+func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP) {
+	defer video.streamWaitGroup.Done()
+
 	conn, err := net.ListenPacket("udp", listenAddr)
 	if err != nil {
 		log.Fatalf("Failed to bind to UDP: %v", err)
 	}
 	defer conn.Close()
+
 	log.Printf("Listening for RTP on %s\n", listenAddr)
 
+	// Create a channel to signal when we should stop
+	done := make(chan struct{})
+
+	// Goroutine to handle context cancellation
+	go func() {
+		<-ctx.Done()
+		close(done)
+		// Close the connection to unblock ReadFrom
+		conn.Close()
+	}()
+
 	buf := make([]byte, 1500)
+
 	for {
-		n, _, err := conn.ReadFrom(buf)
-		if err != nil {
-			log.Printf("Read error: %v", err)
-			continue
-		}
+		select {
+		case <-done:
+			log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
+			return
+		default:
+			// Set a shorter read deadline for more responsive cancellation
+			deadline := time.Now().Add(100 * time.Millisecond)
+			conn.SetReadDeadline(deadline)
 
-		packet := &rtp.Packet{}
-		if err := packet.Unmarshal(buf[:n]); err != nil {
-			log.Printf("Failed to parse RTP packet: %v", err)
-			continue
-		}
+			n, _, err := conn.ReadFrom(buf)
+			if err != nil {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					// Check if we should exit on timeout
+					select {
+					case <-done:
+						log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
+						return
+					default:
+						continue
+					}
+				}
 
-		raw, err := packet.Marshal()
-		if err != nil {
-			log.Printf("Failed to marshal RTP packet: %v", err)
-			continue
-		}
+				// Check for context cancellation on any error
+				select {
+				case <-done:
+					log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
+					return
+				default:
+					// If connection was closed due to cancellation, exit
+					if video.isClosing {
+						log.Printf("Shutting down RTP ingest for %s (connection closed)\n", track.StreamID())
+						return
+					}
+					log.Printf("Read error: %v", err)
+					continue
+				}
+			}
 
-		// Write the RTP packet to the WebRTC track
-		_, writeErr := track.Write(raw)
-		if writeErr != nil {
-			log.Printf("Failed to write RTP to track: %v", writeErr)
+			packet := &rtp.Packet{}
+			if err := packet.Unmarshal(buf[:n]); err != nil {
+				log.Printf("Failed to parse RTP packet: %v", err)
+				continue
+			}
+
+			raw, err := packet.Marshal()
+			if err != nil {
+				log.Printf("Failed to marshal RTP packet: %v", err)
+				continue
+			}
+
+			_, writeErr := track.Write(raw)
+			if writeErr != nil {
+				log.Printf("Failed to write RTP to track: %v", writeErr)
+			}
 		}
-		//log.Printf("SENT RTP %d PACKETs TO CLIENT", n)
-		//log.Printf("Received RTP Packet: SSRC=%d Seq=%d TS=%d", packet.SSRC, packet.SequenceNumber, packet.Timestamp)
 	}
+}
+
+func (video *RDPAudioVideo) Close() {
+	video.streamsMutex.Lock()
+	defer video.streamsMutex.Unlock()
+
+	if video.cancelRTPTrackInjest != nil {
+		log.Printf("Closing RTP Injest Loops\n")
+		video.isClosing = true
+		video.cancelRTPTrackInjest()
+
+		// Wait for all goroutines to finish with a timeout
+		done := make(chan struct{})
+		go func() {
+			video.streamWaitGroup.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			log.Printf("All RTP streams closed successfully\n")
+		case <-time.After(2 * time.Second):
+			log.Printf("Timeout waiting for RTP streams to close\n")
+		}
+	}
+
+	video.cancelRTPTrackInjest = nil
+	video.isClosing = false
+}
+
+// CloseWithTimeout provides more control over the closing timeout
+func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
+	video.streamsMutex.Lock()
+	defer video.streamsMutex.Unlock()
+
+	if video.cancelRTPTrackInjest != nil {
+		log.Printf("Closing RTP Injest Loops with timeout %v\n", timeout)
+		video.isClosing = true
+		video.cancelRTPTrackInjest()
+
+		done := make(chan struct{})
+		go func() {
+			video.streamWaitGroup.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			log.Printf("All RTP streams closed successfully\n")
+		case <-time.After(timeout):
+			log.Printf("Timeout waiting for RTP streams to close\n")
+			return context.DeadlineExceeded
+		}
+	}
+
+	video.cancelRTPTrackInjest = nil
+	video.isClosing = false
+	return nil
 }
