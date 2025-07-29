@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -105,6 +104,9 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 
 	// Create a channel to signal when we should stop
 	done := make(chan struct{})
+	if udpConn, ok := conn.(*net.UDPConn); ok {
+		udpConn.SetReadBuffer(1024 * 1024) // 1MB buffer
+	}
 
 	// Goroutine to handle context cancellation
 	go func() {
@@ -114,7 +116,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 		conn.Close()
 	}()
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, 1024*1024) // 1 mib buffer
 
 	for {
 		select {
@@ -123,8 +125,9 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			return
 		default:
 			// Set a shorter read deadline for more responsive cancellation
-			deadline := time.Now().Add(100 * time.Millisecond)
-			conn.SetReadDeadline(deadline)
+			//deadline := time.Now().Add(100 * time.Millisecond)
+			//conn.SetReadDeadline(deadline)
+			conn.SetReadDeadline(time.Time{})
 
 			n, _, err := conn.ReadFrom(buf)
 			if err != nil {
@@ -155,19 +158,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 				}
 			}
 
-			packet := &rtp.Packet{}
-			if err := packet.Unmarshal(buf[:n]); err != nil {
-				log.Printf("Failed to parse RTP packet: %v", err)
-				continue
-			}
-
-			raw, err := packet.Marshal()
-			if err != nil {
-				log.Printf("Failed to marshal RTP packet: %v", err)
-				continue
-			}
-
-			_, writeErr := track.Write(raw)
+			_, writeErr := track.Write(buf[:n])
 			if writeErr != nil {
 				log.Printf("Failed to write RTP to track: %v", writeErr)
 			}
