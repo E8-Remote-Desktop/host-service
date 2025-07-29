@@ -158,6 +158,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			}
 
 			_, writeErr := track.Write(raw)
+			log.Printf("SENT RTP PACKET OVER TRACK")
 			if writeErr != nil {
 				log.Printf("Failed to write RTP to track: %v", writeErr)
 			}
