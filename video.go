@@ -38,10 +38,10 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	if err != nil {
 		panic(err)
 	}
-	audioTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio)
-	if err != nil {
-		panic(err)
-	}
+	//audioTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio)
+	//if err != nil {
+	//panic(err)
+	//}
 
 	videoTrack, err := webrtc.NewTrackLocalStaticRTP(
 		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264},
@@ -53,22 +53,22 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 		panic(err)
 	}
 
-	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
-		webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
-		"audio",
-		"rdp-audio",
-	)
-	if err != nil {
-		panic(err)
-	}
+	//audioTrack, err := webrtc.NewTrackLocalStaticRTP(
+	//webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
+	//"audio",
+	//"rdp-audio",
+	//)
+	//if err != nil {
+	//panic(err)
+	//}
 
 	// Add tracks
 	if videoTransceiver.Sender() != nil {
 		videoTransceiver.Sender().ReplaceTrack(videoTrack)
 	}
-	if audioTransceiver.Sender() != nil {
-		audioTransceiver.Sender().ReplaceTrack(audioTrack)
-	}
+	//if audioTransceiver.Sender() != nil {
+	//audioTransceiver.Sender().ReplaceTrack(audioTrack)
+	//}
 
 	// RTP Loop to injest the RTP frames
 	ctx, cancel := context.WithCancel(context.Background())
@@ -78,7 +78,7 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	log.Println("RTP Stream Started")
 
 	video.streamWaitGroup.Add(2)
-	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack)
+	//go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack)
 	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack)
 }
 
