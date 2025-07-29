@@ -34,7 +34,17 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	video.StartStream()
 
 	// Create tracks
-	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo)
+	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
+		webrtc.RTPCodecTypeVideo,
+		webrtc.RTPTransceiverInit{
+			Direction: webrtc.RTPTransceiverDirectionSendonly,
+			SendEncodings: []webrtc.RTPEncodingParameters{
+				{
+					// Optional: Set encoding parameters like SSRC or maxBitrate
+				},
+			},
+		},
+	)
 	if err != nil {
 		panic(err)
 	}
@@ -158,7 +168,6 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			}
 
 			_, writeErr := track.Write(raw)
-			log.Printf("SENT RTP PACKET OVER TRACK")
 			if writeErr != nil {
 				log.Printf("Failed to write RTP to track: %v", writeErr)
 			}
