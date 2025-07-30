@@ -45,6 +45,7 @@ var scMap = map[uint16]uint16{
 	26:  0x1A, // '['
 	27:  0x1B, // ']'
 	28:  0x1C, // Enter
+	29:  0x1D, // Left ctrl
 	30:  0x1E, // 'A'
 	31:  0x1F, // 'S'
 	32:  0x20, // 'D'
@@ -57,7 +58,7 @@ var scMap = map[uint16]uint16{
 	39:  0x27, // ';'
 	40:  0x28, // '''
 	41:  0x29, // '`'
-	42:  0x2A,
+	42:  0x2A, // Left shift
 	43:  0x2B, // '\'
 	44:  0x2C, // 'Z'
 	45:  0x2D, // 'X'
@@ -104,15 +105,8 @@ const (
 )
 
 const (
-	SC_BACK    = 0x0E   // Backspace
-	SC_TAB     = 0x0F   // Tab
-	SC_RETURN  = 0x1C   // Enter
-	SC_CONTROL = 0x1D   // Left Control (default)
-	SC_MENU    = 0x38   // Left Alt
-	SC_PAUSE   = 0x45   // Pause/Break (complex key in practice)
-	SC_LWIN    = 0xE05B // Left Windows key (extended)
-	SC_RWIN    = 0xE05C // Right Windows key (extended)
-	SC_APPS    = 0xE05D // Menu key (extended)
+	SC_PAUSE = 0x45   // Pause/Break (complex key in practice)
+	SC_APPS  = 0xE05D // Menu key (extended)
 )
 
 type KEYBDINPUT struct {
