@@ -13,105 +13,107 @@ import (
 	"github.com/stephen-fox/user32util"
 )
 
-// keyMap translates linux input codes  to windows input keycodes
+// keyMap translates linux input codes  to windows scancodes
 // linux ftw
-var keyMap = map[uint16]uint16{
-	1:   0x1B, // Escape
-	2:   0x31, // '1'
-	3:   0x32, // '2'
-	4:   0x33, // '3'
-	5:   0x34, // '4'
-	6:   0x35, // '5'
-	7:   0x36, // '6'
-	8:   0x37, // '7'
-	9:   0x38, // '8'
-	10:  0x39, // '9'
-	11:  0x30, // '0'
-	12:  0xBD, // '-' (VK_OEM_MINUS)
-	13:  0xBB, // '=' (VK_OEM_PLUS)
-	14:  0x08, // Backspace
-	15:  0x09, // Tab
-	16:  0x51, // 'Q'
-	17:  0x57, // 'W'
-	18:  0x45, // 'E'
-	19:  0x52, // 'R'
-	20:  0x54, // 'T'
-	21:  0x59, // 'Y'
-	22:  0x55, // 'U'
-	23:  0x49, // 'I'
-	24:  0x4F, // 'O'
-	25:  0x50, // 'P'
-	26:  0xDB, // '[' (VK_OEM_4)
-	27:  0xDD, // ']' (VK_OEM_6)
-	28:  0x0D, // Enter
-	30:  0x41, // 'A'
-	31:  0x53, // 'S'
-	32:  0x44, // 'D'
-	33:  0x46, // 'F'
-	34:  0x47, // 'G'
-	35:  0x48, // 'H'
-	36:  0x4A, // 'J'
-	37:  0x4B, // 'K'
-	38:  0x4C, // 'L'
-	39:  0xBA, // ';' (VK_OEM_1)
-	40:  0xDE, // ''' (VK_OEM_7)
-	41:  0xC0, // '`' (VK_OEM_3)
-	43:  0xDC, // '\' (VK_OEM_5)
-	44:  0x5A, // 'Z'
-	45:  0x58, // 'X'
-	46:  0x43, // 'C'
-	47:  0x56, // 'V'
-	48:  0x42, // 'B'
-	49:  0x4E, // 'N'
-	50:  0x4D, // 'M'
-	51:  0xBC, // ',' (VK_OEM_COMMA)
-	52:  0xBE, // '.' (VK_OEM_PERIOD)
-	53:  0xBF, // '/' (VK_OEM_2)
-	57:  0x20, // Space
-	58:  0x14, // Caps Lock
-	59:  0x70, // F1
-	60:  0x71, // F2
-	61:  0x72, // F3
-	62:  0x73, // F4
-	63:  0x74, // F5
-	64:  0x75, // F6
-	65:  0x76, // F7
-	66:  0x77, // F8
-	67:  0x78, // F9
-	68:  0x79, // F10
-	87:  0x7A, // F11
-	88:  0x7B, // F12
-	103: 0x26, // Up Arrow
-	105: 0x25, // Left Arrow
-	106: 0x27, // Right Arrow
-	108: 0x28, // Down Arrow
-	111: 0x2E, // Delete
+
+var scMap = map[uint16]uint16{
+	1:   0x01, // Escape
+	2:   0x02, // '1'
+	3:   0x03, // '2'
+	4:   0x04, // '3'
+	5:   0x05, // '4'
+	6:   0x06, // '5'
+	7:   0x07, // '6'
+	8:   0x08, // '7'
+	9:   0x09, // '8'
+	10:  0x0A, // '9'
+	11:  0x0B, // '0'
+	12:  0x0C, // '-' (OEM_MINUS)
+	13:  0x0D, // '=' (OEM_PLUS)
+	14:  0x0E, // Backspace
+	15:  0x0F, // Tab
+	16:  0x10, // 'Q'
+	17:  0x11, // 'W'
+	18:  0x12, // 'E'
+	19:  0x13, // 'R'
+	20:  0x14, // 'T'
+	21:  0x15, // 'Y'
+	22:  0x16, // 'U'
+	23:  0x17, // 'I'
+	24:  0x18, // 'O'
+	25:  0x19, // 'P'
+	26:  0x1A, // '['
+	27:  0x1B, // ']'
+	28:  0x1C, // Enter
+	30:  0x1E, // 'A'
+	31:  0x1F, // 'S'
+	32:  0x20, // 'D'
+	33:  0x21, // 'F'
+	34:  0x22, // 'G'
+	35:  0x23, // 'H'
+	36:  0x24, // 'J'
+	37:  0x25, // 'K'
+	38:  0x26, // 'L'
+	39:  0x27, // ';'
+	40:  0x28, // '''
+	41:  0x29, // '`'
+	43:  0x2B, // '\'
+	44:  0x2C, // 'Z'
+	45:  0x2D, // 'X'
+	46:  0x2E, // 'C'
+	47:  0x2F, // 'V'
+	48:  0x30, // 'B'
+	49:  0x31, // 'N'
+	50:  0x32, // 'M'
+	51:  0x33, // ','
+	52:  0x34, // '.'
+	53:  0x35, // '/'
+	57:  0x39, // Space
+	58:  0x3A, // Caps Lock
+	59:  0x3B, // F1
+	60:  0x3C, // F2
+	61:  0x3D, // F3
+	62:  0x3E, // F4
+	63:  0x3F, // F5
+	64:  0x40, // F6
+	65:  0x41, // F7
+	66:  0x42, // F8
+	67:  0x43, // F9
+	68:  0x44, // F10
+	87:  0x57, // F11
+	88:  0x58, // F12
+	103: 0x48, // Up Arrow
+	105: 0x4B, // Left Arrow
+	106: 0x4D, // Right Arrow
+	108: 0x50, // Down Arrow
+	111: 0x53, // Delete (extended)
 }
 
 const (
-	KEYEVENTF_KEYDOWN = 0x0000
-	KEYEVENTF_KEYUP   = 0x0002
-	INPUT_KEYBOARD    = 1
+	KEYEVENTF_KEYDOWN  = 0x0000
+	KEYEVENTF_KEYUP    = 0x0002
+	KEYEVENTF_SCANCODE = 0x0008
+	INPUT_KEYBOARD     = 1
 )
 
 const (
-	VK_BACK    = 0x08
-	VK_TAB     = 0x09
-	VK_RETURN  = 0x0D
-	VK_SHIFT   = 0x10
-	VK_CONTROL = 0x11
-	VK_MENU    = 0x12 // Alt key
-	VK_PAUSE   = 0x13
-	VK_CAPITAL = 0x14
-	VK_ESCAPE  = 0x1B
-	VK_SPACE   = 0x20
-	VK_LEFT    = 0x25
-	VK_UP      = 0x26
-	VK_RIGHT   = 0x27
-	VK_DOWN    = 0x28
-	VK_LWIN    = 0x5B
-	VK_RWIN    = 0x5C
-	VK_APPS    = 0x5D
+	SC_BACK    = 0x0E   // Backspace
+	SC_TAB     = 0x0F   // Tab
+	SC_RETURN  = 0x1C   // Enter
+	SC_SHIFT   = 0x2A   // Left Shift (common default)
+	SC_CONTROL = 0x1D   // Left Control (default)
+	SC_MENU    = 0x38   // Left Alt
+	SC_PAUSE   = 0x45   // Pause/Break (complex key in practice)
+	SC_CAPITAL = 0x3A   // Caps Lock
+	SC_ESCAPE  = 0x01   // Escape
+	SC_SPACE   = 0x39   // Spacebar
+	SC_LEFT    = 0x4B   // Left Arrow (extended: E0 4B)
+	SC_UP      = 0x48   // Up Arrow (extended: E0 48)
+	SC_RIGHT   = 0x4D   // Right Arrow (extended: E0 4D)
+	SC_DOWN    = 0x50   // Down Arrow (extended: E0 50)
+	SC_LWIN    = 0xE05B // Left Windows key (extended)
+	SC_RWIN    = 0xE05C // Right Windows key (extended)
+	SC_APPS    = 0xE05D // Menu key (extended)
 )
 
 type KEYBDINPUT struct {
@@ -129,17 +131,20 @@ type INPUT struct {
 	Ki   KEYBDINPUT
 }
 
-func SendKeyboardInput(dll *user32util.User32DLL, vk uint16, keyDown bool) {
-	flags := uint32(0)
+func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
+	var flags uint32 = KEYEVENTF_SCANCODE
 	if !keyDown {
-		flags = KEYEVENTF_KEYUP
+		flags |= KEYEVENTF_KEYUP
 	}
-
+	if sc&0xFF00 == 0xE000 {
+		flags |= 0x0001 // KEYEVENTF_EXTENDEDKEY
+		sc &= 0xFF      // Only pass the low byte (e.g. 0x4D instead of 0xE04D)
+	}
 	input := INPUT{
 		Type: INPUT_KEYBOARD,
 		Ki: KEYBDINPUT{
-			Vk:        vk,
-			Scan:      0,
+			Vk:        0,
+			Scan:      sc,
 			Flags:     flags,
 			Time:      0,
 			ExtraInfo: 0,
@@ -207,7 +212,7 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 			keyCode := binary.BigEndian.Uint16(data[1:3])
 			modifiers := data[3]
 
-			vk, ok := keyMap[keyCode]
+			vk, ok := scMap[keyCode]
 			if !ok {
 				log.Printf("Unknown key code: %d\n", keyCode)
 				return
@@ -215,16 +220,16 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 
 			// Send modifiers down
 			if modifiers&(1<<0) != 0 {
-				SendKeyboardInput(dll, VK_CONTROL, true)
+				SendKeyboardInput(dll, SC_CONTROL, true)
 			}
 			if modifiers&(1<<1) != 0 {
-				SendKeyboardInput(dll, VK_SHIFT, true)
+				SendKeyboardInput(dll, SC_SHIFT, true)
 			}
 			if modifiers&(1<<2) != 0 {
-				SendKeyboardInput(dll, VK_MENU, true) // Alt
+				SendKeyboardInput(dll, SC_MENU, true) // Alt
 			}
 			if modifiers&(1<<3) != 0 {
-				SendKeyboardInput(dll, VK_LWIN, true) // Win key
+				SendKeyboardInput(dll, SC_LWIN, true) // Win key
 			}
 
 			// Send main key down and up
@@ -233,16 +238,16 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 
 			// Release modifiers
 			if modifiers&(1<<3) != 0 {
-				SendKeyboardInput(dll, VK_LWIN, false)
+				SendKeyboardInput(dll, SC_LWIN, false)
 			}
 			if modifiers&(1<<2) != 0 {
-				SendKeyboardInput(dll, VK_MENU, false)
+				SendKeyboardInput(dll, SC_MENU, false)
 			}
 			if modifiers&(1<<1) != 0 {
-				SendKeyboardInput(dll, VK_SHIFT, false)
+				SendKeyboardInput(dll, SC_SHIFT, false)
 			}
 			if modifiers&(1<<0) != 0 {
-				SendKeyboardInput(dll, VK_CONTROL, false)
+				SendKeyboardInput(dll, SC_CONTROL, false)
 			}
 
 		case 2: // Mouse Move + Buttons Event
