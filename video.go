@@ -35,14 +35,6 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
 		webrtc.RTPCodecTypeVideo,
-		webrtc.RTPTransceiverInit{
-			Direction: webrtc.RTPTransceiverDirectionSendonly,
-			SendEncodings: []webrtc.RTPEncodingParameters{
-				{
-					// Optional: Set encoding parameters like SSRC or maxBitrate
-				},
-			},
-		},
 	)
 	if err != nil {
 		panic(err)

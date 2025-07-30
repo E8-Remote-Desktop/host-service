@@ -39,8 +39,17 @@ func (connector *RDPWebRTCConnect) Start() {
 			Channels:    0,
 			SDPFmtpLine: "profile-level-id=42e01f;level-asymmetry-allowed=1;packetization-mode=1",
 		},
-		PayloadType: 126, // Use 126 or any other dynamic PT you prefer
+		PayloadType: 126,
 	}, webrtc.RTPCodecTypeVideo)
+
+	mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:  webrtc.MimeTypeOpus,
+			ClockRate: 48000,
+			Channels:  2,
+		},
+		PayloadType: 96,
+	}, webrtc.RTPCodecTypeAudio)
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
 
