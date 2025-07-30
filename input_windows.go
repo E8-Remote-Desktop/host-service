@@ -133,7 +133,7 @@ type INPUT struct {
 }
 
 func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
-	var flags uint32 = KEYEVENTF_UNICODE
+	var flags uint32 = KEYEVENTF_SCANCODE
 	if !keyDown {
 		flags |= KEYEVENTF_KEYUP
 	}
@@ -167,12 +167,14 @@ func GetInput() Input {
 // RDPWindowsInput handles remote input events on Windows using robotgo.
 type RDPWindowsInput struct {
 	lastButtons byte
+	pressedKeys map[uint16]bool
 }
 
 // Init initializes the input handler. For Windows, this is a no-op
 // as robotgo doesn't require explicit device creation like uinput.
 func (input *RDPWindowsInput) Init() error {
-	log.Println("Windows Input handler initialized (robotgo)")
+	input.pressedKeys = make(map[uint16]bool)
+	log.Println("Windows Input handler initialized")
 	return nil
 }
 
@@ -206,49 +208,59 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 
 		switch data[0] {
 		case 1: // Keyboard Event
-			if len(data) < 4 {
+			if len(data) < 5 {
 				log.Println("Invalid keyboard packet")
 				return
 			}
 			keyCode := binary.BigEndian.Uint16(data[1:3])
 			modifiers := data[3]
+			keyDown := data[4] == 1
 
-			vk, ok := scMap[keyCode]
+			sc, ok := scMap[keyCode]
 			if !ok {
 				log.Printf("Unknown key code: %d\n", keyCode)
 				return
 			}
 
-			// Send modifiers down
-			if modifiers&(1<<0) != 0 {
-				SendKeyboardInput(dll, SC_CONTROL, true)
-			}
-			if modifiers&(1<<1) != 0 {
-				SendKeyboardInput(dll, SC_SHIFT, true)
-			}
-			if modifiers&(1<<2) != 0 {
-				SendKeyboardInput(dll, SC_MENU, true) // Alt
-			}
-			if modifiers&(1<<3) != 0 {
-				SendKeyboardInput(dll, SC_LWIN, true) // Win key
+			// Check if state already matches
+			if !input.pressedKeys[sc] && !keyDown {
+				return // already pressed or already released, skip
 			}
 
-			// Send main key down and up
-			SendKeyboardInput(dll, vk, true)
-			SendKeyboardInput(dll, vk, false)
+			// Send modifiers only on keyDown
+			if keyDown {
+				if modifiers&(1<<0) != 0 {
+					SendKeyboardInput(dll, SC_CONTROL, true)
+				}
+				if modifiers&(1<<1) != 0 {
+					SendKeyboardInput(dll, SC_SHIFT, true)
+				}
+				if modifiers&(1<<2) != 0 {
+					SendKeyboardInput(dll, SC_MENU, true)
+				}
+				if modifiers&(1<<3) != 0 {
+					SendKeyboardInput(dll, SC_LWIN, true)
+				}
+			}
 
-			// Release modifiers
-			if modifiers&(1<<3) != 0 {
-				SendKeyboardInput(dll, SC_LWIN, false)
-			}
-			if modifiers&(1<<2) != 0 {
-				SendKeyboardInput(dll, SC_MENU, false)
-			}
-			if modifiers&(1<<1) != 0 {
-				SendKeyboardInput(dll, SC_SHIFT, false)
-			}
-			if modifiers&(1<<0) != 0 {
-				SendKeyboardInput(dll, SC_CONTROL, false)
+			// Send main key event
+			SendKeyboardInput(dll, sc, keyDown)
+			input.pressedKeys[sc] = keyDown
+
+			// Release modifiers on keyUp
+			if !keyDown {
+				if modifiers&(1<<3) != 0 {
+					SendKeyboardInput(dll, SC_LWIN, false)
+				}
+				if modifiers&(1<<2) != 0 {
+					SendKeyboardInput(dll, SC_MENU, false)
+				}
+				if modifiers&(1<<1) != 0 {
+					SendKeyboardInput(dll, SC_SHIFT, false)
+				}
+				if modifiers&(1<<0) != 0 {
+					SendKeyboardInput(dll, SC_CONTROL, false)
+				}
 			}
 
 		case 2: // Mouse Move + Buttons Event
