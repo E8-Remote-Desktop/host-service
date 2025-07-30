@@ -57,6 +57,7 @@ var scMap = map[uint16]uint16{
 	39:  0x27, // ';'
 	40:  0x28, // '''
 	41:  0x29, // '`'
+	42:  0x2A,
 	43:  0x2B, // '\'
 	44:  0x2C, // 'Z'
 	45:  0x2D, // 'X'
@@ -68,6 +69,8 @@ var scMap = map[uint16]uint16{
 	51:  0x33, // ','
 	52:  0x34, // '.'
 	53:  0x35, // '/'
+	54:  0x36, // 'Right Shift'
+	56:  0x38, // Left Alt
 	57:  0x39, // Space
 	58:  0x3A, // Caps Lock
 	59:  0x3B, // F1
@@ -82,11 +85,14 @@ var scMap = map[uint16]uint16{
 	68:  0x44, // F10
 	87:  0x57, // F11
 	88:  0x58, // F12
-	103: 0x48, // Up Arrow
-	105: 0x4B, // Left Arrow
-	106: 0x4D, // Right Arrow
-	108: 0x50, // Down Arrow
-	111: 0x53, // Delete (extended)
+	97:  0x1C,
+	103: 0x48,   // Up Arrow
+	105: 0x4B,   // Left Arrow
+	106: 0x4D,   // Right Arrow
+	108: 0x50,   // Down Arrow
+	111: 0xE053, // Delete (extended)
+	125: 0xE05B,
+	126: 0xE05C,
 }
 
 const (
@@ -101,17 +107,9 @@ const (
 	SC_BACK    = 0x0E   // Backspace
 	SC_TAB     = 0x0F   // Tab
 	SC_RETURN  = 0x1C   // Enter
-	SC_SHIFT   = 0x2A   // Left Shift (common default)
 	SC_CONTROL = 0x1D   // Left Control (default)
 	SC_MENU    = 0x38   // Left Alt
 	SC_PAUSE   = 0x45   // Pause/Break (complex key in practice)
-	SC_CAPITAL = 0x3A   // Caps Lock
-	SC_ESCAPE  = 0x01   // Escape
-	SC_SPACE   = 0x39   // Spacebar
-	SC_LEFT    = 0x4B   // Left Arrow (extended: E0 4B)
-	SC_UP      = 0x48   // Up Arrow (extended: E0 48)
-	SC_RIGHT   = 0x4D   // Right Arrow (extended: E0 4D)
-	SC_DOWN    = 0x50   // Down Arrow (extended: E0 50)
 	SC_LWIN    = 0xE05B // Left Windows key (extended)
 	SC_RWIN    = 0xE05C // Right Windows key (extended)
 	SC_APPS    = 0xE05D // Menu key (extended)
@@ -213,7 +211,6 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 				return
 			}
 			keyCode := binary.BigEndian.Uint16(data[1:3])
-			modifiers := data[3]
 			keyDown := data[4] == 1
 
 			sc, ok := scMap[keyCode]
@@ -227,41 +224,9 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 				return // already pressed or already released, skip
 			}
 
-			// Send modifiers only on keyDown
-			if keyDown {
-				if modifiers&(1<<0) != 0 {
-					SendKeyboardInput(dll, SC_CONTROL, true)
-				}
-				if modifiers&(1<<1) != 0 {
-					SendKeyboardInput(dll, SC_SHIFT, true)
-				}
-				if modifiers&(1<<2) != 0 {
-					SendKeyboardInput(dll, SC_MENU, true)
-				}
-				if modifiers&(1<<3) != 0 {
-					SendKeyboardInput(dll, SC_LWIN, true)
-				}
-			}
-
 			// Send main key event
 			SendKeyboardInput(dll, sc, keyDown)
 			input.pressedKeys[sc] = keyDown
-
-			// Release modifiers on keyUp
-			if !keyDown {
-				if modifiers&(1<<3) != 0 {
-					SendKeyboardInput(dll, SC_LWIN, false)
-				}
-				if modifiers&(1<<2) != 0 {
-					SendKeyboardInput(dll, SC_MENU, false)
-				}
-				if modifiers&(1<<1) != 0 {
-					SendKeyboardInput(dll, SC_SHIFT, false)
-				}
-				if modifiers&(1<<0) != 0 {
-					SendKeyboardInput(dll, SC_CONTROL, false)
-				}
-			}
 
 		case 2: // Mouse Move + Buttons Event
 			if len(data) < 6 {
