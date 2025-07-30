@@ -31,28 +31,6 @@ func (connector *RDPWebRTCConnect) Start() {
 	log.Println("Host has connected to broker websocket, waiting for client connection...")
 	// Setup stuff
 
-	mediaEngine := &webrtc.MediaEngine{}
-	mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:    webrtc.MimeTypeH264,
-			ClockRate:   90000,
-			Channels:    0,
-			SDPFmtpLine: "profile-level-id=42e01f;level-asymmetry-allowed=1;packetization-mode=1",
-		},
-		PayloadType: 126,
-	}, webrtc.RTPCodecTypeVideo)
-
-	mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
-		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:  webrtc.MimeTypeOpus,
-			ClockRate: 48000,
-			Channels:  2,
-		},
-		PayloadType: 96,
-	}, webrtc.RTPCodecTypeAudio)
-
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-
 	var peerConnection *webrtc.PeerConnection
 
 	var captureStream AudioVideo = &RDPAudioVideo{}
@@ -87,7 +65,7 @@ func (connector *RDPWebRTCConnect) Start() {
 				peerConnection = nil
 			}
 
-			peerConnection, err = api.NewPeerConnection(webrtc.Configuration{
+			peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
 				ICEServers: []webrtc.ICEServer{
 					{
 						URLs: []string{"stun:stun.l.google.com:19302"},
