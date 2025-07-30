@@ -3,67 +3,128 @@
 
 package rdp
 
-/*
-#include <windows.h>
-
-// Helper function to send keyboard input
-void sendKeyboardInput(WORD vk, BOOL keyDown) {
-	INPUT input = {0};
-	input.type = INPUT_KEYBOARD;
-	input.ki.wVk = vk;
-	if (!keyDown) {
-		input.ki.dwFlags = KEYEVENTF_KEYUP;
-	}
-	SendInput(1, &input, sizeof(INPUT));
-}
-
-// Helper function to send mouse input
-void sendMouseInput(DWORD flags, LONG dx, LONG dy, DWORD mouseData) {
-	INPUT input = {0};
-	input.type = INPUT_MOUSE;
-	input.mi.dx = dx;
-	input.mi.dy = dy;
-	input.mi.dwFlags = flags;
-	input.mi.mouseData = mouseData;
-	SendInput(1, &input, sizeof(INPUT));
-}
-*/
-import "C"
-
 import (
 	"encoding/binary"
 	"log"
 
+	"github.com/go-vgo/robotgo"
 	"github.com/pion/webrtc/v3"
 )
 
+// keyMap translates input event codes (sent by the client) to robotgo key strings.
+var keyMap = map[uint16]string{
+	1:  "escape",
+	2:  "1",
+	3:  "2",
+	4:  "3",
+	5:  "4",
+	6:  "5",
+	7:  "6",
+	8:  "7",
+	9:  "8",
+	10: "9",
+	11: "0",
+	12: "-",
+	13: "=",
+	14: "backspace",
+	15: "tab",
+	16: "q",
+	17: "w",
+	18: "e",
+	19: "r",
+	20: "t",
+	21: "y",
+	22: "u",
+	23: "i",
+	24: "o",
+	25: "p",
+	26: "[",
+	27: "]",
+	28: "enter",
+	// 29: "ControlLeft" - Handled by modifier byte
+	30: "a",
+	31: "s",
+	32: "d",
+	33: "f",
+	34: "g",
+	35: "h",
+	36: "j",
+	37: "k",
+	38: "l",
+	39: ";",
+	40: "'",
+	41: "`",
+	// 42: "ShiftLeft" - Handled by modifier byte
+	43: "\\",
+	44: "z",
+	45: "x",
+	46: "c",
+	47: "v",
+	48: "b",
+	49: "n",
+	50: "m",
+	51: ",",
+	52: ".",
+	53: "/",
+	// 54: "ShiftRight" - Handled by modifier byte
+	// 56: "AltLeft" - Handled by modifier byte
+	57: "space",
+	58: "capslock",
+	59: "f1",
+	60: "f2",
+	61: "f3",
+	62: "f4",
+	63: "f5",
+	64: "f6",
+	65: "f7",
+	66: "f8",
+	67: "f9",
+	68: "f10",
+	87: "f11",
+	88: "f12",
+	// 97: "ControlRight" - Handled by modifier byte
+	// 100: "AltRight" - Handled by modifier byte
+	103: "up",
+	105: "left",
+	106: "right",
+	108: "down",
+	111: "delete",
+	// 125: "MetaLeft" - Handled by modifier byte
+}
+
+// GetInput returns the Windows-specific input handler.
 func GetInput() Input {
 	return &RDPWindowsInput{}
 }
 
+// RDPWindowsInput handles remote input events on Windows using robotgo.
 type RDPWindowsInput struct {
 	lastButtons byte
 }
 
+// Init initializes the input handler. For Windows, this is a no-op
+// as robotgo doesn't require explicit device creation like uinput.
 func (input *RDPWindowsInput) Init() error {
-	// Nothing special to initialize for Windows input injection
-	log.Println("Windows input initialized")
+	log.Println("Windows Input handler initialized (robotgo)")
 	return nil
 }
 
+// Close cleans up resources. For Windows, this is a no-op.
 func (input *RDPWindowsInput) Close() {
-	// Nothing to close on Windows
+	// robotgo does not require explicit closing of devices.
 }
 
+// AcceptDataChannel sets up the handler for incoming WebRTC data channels.
 func (input *RDPWindowsInput) AcceptDataChannel(pc *webrtc.PeerConnection) {
 	pc.OnDataChannel(input.processor)
 }
 
+// processor handles messages from the WebRTC data channel.
 func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
-	log.Printf("Data Channel %s request received\n", dc.Label())
+	log.Printf("Data Channel '%s' request received\n", dc.Label())
 
 	dc.OnOpen(func() {
-		log.Printf("Data Channel %s opened, Input HID Ready\n", dc.Label())
+		log.Printf("Data Channel '%s' opened, Input HID Ready\n", dc.Label())
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -73,7 +134,7 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 		}
 
 		switch data[0] {
-		case 1: // Keyboard
+		case 1: // Keyboard Event
 			if len(data) < 4 {
 				log.Println("Invalid keyboard packet")
 				return
@@ -81,31 +142,63 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 			keyCode := binary.BigEndian.Uint16(data[1:3])
 			modifiers := data[3]
 
-			input.handleModifiers(modifiers, true)
-			input.keyPressWindows(keyCode)
-			input.handleModifiers(modifiers, false)
+			keyString, ok := keyMap[keyCode]
+			if !ok {
+				log.Printf("Unknown key code: %d\n", keyCode)
+				return
+			}
 
-		case 2: // Mouse move + buttons
+			// Build modifier list for robotgo
+			var modStrings []string
+			if modifiers&(1<<0) != 0 {
+				modStrings = append(modStrings, "ctrl")
+			}
+			if modifiers&(1<<1) != 0 {
+				modStrings = append(modStrings, "shift")
+			}
+			if modifiers&(1<<2) != 0 {
+				modStrings = append(modStrings, "alt")
+			}
+			// In robotgo, "cmd" maps to the Windows key
+			if modifiers&(1<<3) != 0 {
+				modStrings = append(modStrings, "cmd")
+			}
+
+			// Use KeyTap to press the key with modifiers
+			if err := robotgo.KeyTap(keyString, modStrings); err != nil {
+				log.Printf("KeyTap error: %v", err)
+			}
+
+		case 2: // Mouse Move + Buttons Event
 			if len(data) < 6 {
 				log.Println("Invalid mouse move packet")
 				return
 			}
-
 			buttons := data[1]
 			dx := int16(binary.BigEndian.Uint16(data[2:4]))
 			dy := int16(binary.BigEndian.Uint16(data[4:6]))
 
-			input.mouseMoveWindows(int32(dx), int32(dy))
+			// Move mouse relative to current position
+			currentX, currentY := robotgo.Location()
+			robotgo.Move(currentX+int(dx), currentY+int(dy))
+
 			input.handleMouseButtons(buttons)
 
-		case 3: // Scroll
+		case 3: // Scroll Event
 			if len(data) < 4 {
 				log.Println("Invalid scroll packet")
 				return
 			}
-
+			// robotgo scroll direction is inverted compared to many systems.
+			// Positive deltaY usually means scrolling down, which for robotgo is "up".
 			deltaY := int16(binary.BigEndian.Uint16(data[1:3]))
-			input.mouseScrollWindows(deltaY)
+
+			// robotgo's Scroll function takes two arguments, x and y scroll amount.
+			// We are only using the y-scroll here.
+			if deltaY != 0 {
+				// We negate deltaY because robotgo's "up" direction is negative.
+				robotgo.Scroll(0, -int(deltaY))
+			}
 
 		default:
 			log.Printf("Unknown input event type: %d", data[0])
@@ -113,100 +206,38 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 	})
 }
 
-// KeyPress sends a key press (down + up) to Windows using Virtual-Key codes
-func (input *RDPWindowsInput) keyPressWindows(keyCode uint16) {
-	vk := windowsVirtualKey(keyCode)
-	if vk == 0 {
-		log.Printf("Unknown keycode %d", keyCode)
-		return
-	}
-	// Key down
-	C.sendKeyboardInput(C.WORD(vk), C.TRUE)
-	// Key up
-	C.sendKeyboardInput(C.WORD(vk), C.FALSE)
-}
-
-func (input *RDPWindowsInput) handleModifiers(modifiers byte, press bool) {
-	modKeys := []struct {
-		mask byte
-		vk   uint16
-	}{
-		{1 << 0, 0xA2}, // Left Ctrl: VK_LCONTROL
-		{1 << 1, 0xA0}, // Left Shift: VK_LSHIFT
-		{1 << 2, 0xA4}, // Left Alt: VK_LMENU
-		{1 << 3, 0x5B}, // Left Meta (Windows key): VK_LWIN
-	}
-
-	for _, mod := range modKeys {
-		if modifiers&mod.mask != 0 {
-			if press {
-				C.sendKeyboardInput(C.WORD(mod.vk), C.TRUE)
-			} else {
-				C.sendKeyboardInput(C.WORD(mod.vk), C.FALSE)
-			}
-		}
-	}
-}
-
-func (input *RDPWindowsInput) mouseMoveWindows(dx, dy int32) {
-	// Send relative mouse movement
-	C.sendMouseInput(C.MOUSEEVENTF_MOVE, C.LONG(dx), C.LONG(dy), 0)
-}
-
-func (input *RDPWindowsInput) mouseScrollWindows(deltaY int16) {
-	// Vertical scroll wheel: WHEEL_DELTA = 120 per notch
-	const WHEEL_DELTA = 120
-	C.sendMouseInput(C.MOUSEEVENTF_WHEEL, 0, 0, C.DWORD(int32(deltaY)*WHEEL_DELTA))
-}
-
+// handleMouseButtons processes mouse button press and release events.
 func (input *RDPWindowsInput) handleMouseButtons(buttons byte) {
 	changed := buttons ^ input.lastButtons
 
-	if changed != 0 {
-		log.Printf("Mouse buttons: %08b -> %08b (changed: %08b)", input.lastButtons, buttons, changed)
+	if changed == 0 {
+		return // No change in button state
 	}
 
 	buttonMap := []struct {
-		mask    byte
-		press   uint32
-		release uint32
+		mask byte
+		name string
 	}{
-		{1 << 0, C.MOUSEEVENTF_LEFTDOWN, C.MOUSEEVENTF_LEFTUP},
-		{1 << 1, C.MOUSEEVENTF_RIGHTDOWN, C.MOUSEEVENTF_RIGHTUP},
-		{1 << 2, C.MOUSEEVENTF_MIDDLEDOWN, C.MOUSEEVENTF_MIDDLEUP},
+		{1 << 0, "left"},
+		{1 << 1, "right"},
+		{1 << 2, "center"}, // "center" is often the middle button click
 	}
 
 	for _, btn := range buttonMap {
 		if changed&btn.mask != 0 {
-			if buttons&btn.mask != 0 {
-				// Press
-				C.sendMouseInput(btn.press, 0, 0, 0)
-			} else {
-				// Release
-				C.sendMouseInput(btn.release, 0, 0, 0)
+			// Determine if it was a press or release
+			isPressed := buttons&btn.mask != 0
+			direction := "up"
+			if isPressed {
+				direction = "down"
+			}
+
+			// robotgo.Toggle handles both press and release
+			if err := robotgo.Toggle(btn.name, direction); err != nil {
+				log.Printf("Mouse %s %s error: %v", btn.name, direction, err)
 			}
 		}
 	}
 
 	input.lastButtons = buttons
-}
-
-// windowsVirtualKey converts your incoming keyCode to a Windows Virtual-Key code.
-// This is a simplified example; you will likely need a full mapping for your use case.
-func windowsVirtualKey(keyCode uint16) uint16 {
-	// Directly use the keyCode if it maps well or implement mapping
-	// For example: 0x41 = 'A' in ASCII and VK_A = 0x41
-	// You should expand this mapping as per your protocol
-
-	// For demo: assume keyCode is ASCII and map A-Z, 0-9, arrows, etc.
-	if keyCode >= 0x41 && keyCode <= 0x5A { // A-Z
-		return keyCode
-	}
-	if keyCode >= 0x30 && keyCode <= 0x39 { // 0-9
-		return keyCode
-	}
-
-	// Add special keys mapping as needed here
-
-	return 0 // unknown key
 }
