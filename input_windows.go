@@ -170,9 +170,8 @@ func (input *RDPWindowsInput) Init() error {
 	return nil
 }
 
-// Close cleans up resources. For Windows, this is a no-op.
 func (input *RDPWindowsInput) Close() {
-	// robotgo does not require explicit closing of devices.
+	input.pressedKeys = make(map[uint16]bool)
 }
 
 // AcceptDataChannel sets up the handler for incoming WebRTC data channels.
