@@ -1,9 +1,12 @@
 package rdp
 
 import (
+	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log"
-	"net/url"
+	"net/http"
+	"os"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
@@ -15,15 +18,29 @@ type SignalMessage struct {
 	Candidate *webrtc.ICECandidateInit `json:"candidate,omitempty"`
 }
 
+type SocketMessage struct {
+	From    string          `json:"from"`
+	To      string          `json:"to"`
+	Content json.RawMessage `json:"content"`
+}
+
 type RDPWebRTCConnect struct{}
 
 // Also handles the socket connection
-func (connector *RDPWebRTCConnect) Start() {
+func (connector *RDPWebRTCConnect) Start(id string, token string) {
 	// Create the peer connection
-	u := url.URL{Scheme: "ws", Host: "192.168.1.231:8080", Path: "/"}
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	my_id := id
+	header := http.Header{}
+	header.Set("Cookie", fmt.Sprintf("user-session=%s", token))
+	dialer := websocket.Dialer{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
+
+	conn, _, err := dialer.Dial(fmt.Sprintf("wss://%s/ws?id=%s&type=machine", os.Getenv("API_URL"), my_id), header)
 	if err != nil {
-		log.Fatal("Error connecting to websocket server")
+		log.Fatalf("Error connecting to websocket server %v", err)
 	}
 
 	defer conn.Close()
@@ -42,15 +59,21 @@ func (connector *RDPWebRTCConnect) Start() {
 		if err != nil {
 			log.Fatal("Error reading WebSocket:", err)
 		}
-
-		var msg SignalMessage
-
+		var msg SocketMessage
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
 			log.Println("Invalid message:", err)
 			continue
 		}
 
-		switch msg.Type {
+		connecting_client := msg.From
+		var signalmsg SignalMessage
+
+		if err := json.Unmarshal([]byte(msg.Content), &signalmsg); err != nil {
+			log.Println("Invalid message:", err)
+			continue
+		}
+
+		switch signalmsg.Type {
 		case "offer":
 			// Create peer connection
 			log.Println("Received SDP offer")
@@ -91,7 +114,7 @@ func (connector *RDPWebRTCConnect) Start() {
 			// Set remote offer
 			offer := webrtc.SessionDescription{
 				Type: webrtc.SDPTypeOffer,
-				SDP:  msg.SDP,
+				SDP:  signalmsg.SDP,
 			}
 
 			err = peerConnection.SetRemoteDescription(offer)
@@ -124,12 +147,19 @@ func (connector *RDPWebRTCConnect) Start() {
 			}
 
 			answerJSON, _ := json.Marshal(answerMsg)
-			err = conn.WriteMessage(websocket.TextMessage, answerJSON)
+
+			socketMsg := SocketMessage{
+				From:    my_id,
+				To:      connecting_client,
+				Content: answerJSON,
+			}
+			socketJSON, _ := json.Marshal(socketMsg)
+			err = conn.WriteMessage(websocket.TextMessage, socketJSON)
 			if err != nil {
 				log.Fatalf("Could not send SDP Answer %v", err)
 			}
 
-			log.Printf("Sent SDP answer %s", string(answerJSON))
+			log.Printf("Sent SDP answer %s", string(socketJSON))
 
 			// Handle ICE candidates from this peer
 			peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
@@ -145,7 +175,14 @@ func (connector *RDPWebRTCConnect) Start() {
 					Candidate: &candidate,
 				}
 				candidateJSON, _ := json.Marshal(candidateMsg)
-				conn.WriteMessage(websocket.TextMessage, candidateJSON)
+
+				sendMessage := SocketMessage{
+					From:    my_id,
+					To:      connecting_client,
+					Content: candidateJSON,
+				}
+				sendJSON, _ := json.Marshal(sendMessage)
+				conn.WriteMessage(websocket.TextMessage, []byte(sendJSON))
 			})
 			// Logging
 			//peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
@@ -156,15 +193,15 @@ func (connector *RDPWebRTCConnect) Start() {
 			//})
 
 		case "ice":
-			log.Printf("Received ICE candidate %s\n", msg.Candidate.Candidate)
+			log.Printf("Received ICE candidate %s\n", signalmsg.Candidate.Candidate)
 			if peerConnection == nil {
 				log.Println("Missed packets?! ICE Candidates recieved before offer, queuing")
-				pendingCandidates = append(pendingCandidates, msg.Candidate)
+				pendingCandidates = append(pendingCandidates, signalmsg.Candidate)
 				continue
 			}
 
-			if msg.Candidate != nil {
-				err := peerConnection.AddICECandidate(*msg.Candidate)
+			if signalmsg.Candidate != nil {
+				err := peerConnection.AddICECandidate(*signalmsg.Candidate)
 				if err != nil {
 					log.Println("Error adding ICE candidate:", err)
 				}
