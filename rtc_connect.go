@@ -53,11 +53,23 @@ func (connector *RDPWebRTCConnect) Start(id string, token string) {
 	var captureStream AudioVideo = &RDPAudioVideo{}
 	var input Input = GetInput()
 	var pendingCandidates []*webrtc.ICECandidateInit
+	//go func() {
+	//ticker := time.NewTicker(30 * time.Second)
+	//defer ticker.Stop()
+	//for range ticker.C {
+	//conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	//if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+	//log.Println("Ping failed, closing ping loop:", err)
+	//return // Stops ping loop; consider reconnecting
+	//}
+	//}
+	//}()
 	for {
+
 		_, msgBytes, err := conn.ReadMessage()
 		//log.Println("Recieved message?")
 		if err != nil {
-			log.Fatal("Error reading WebSocket:", err)
+			log.Println("Error reading WebSocket:", err)
 		}
 		var msg SocketMessage
 		if err := json.Unmarshal(msgBytes, &msg); err != nil {
@@ -156,7 +168,8 @@ func (connector *RDPWebRTCConnect) Start(id string, token string) {
 			socketJSON, _ := json.Marshal(socketMsg)
 			err = conn.WriteMessage(websocket.TextMessage, socketJSON)
 			if err != nil {
-				log.Fatalf("Could not send SDP Answer %v", err)
+				log.Printf("Could not send SDP Answer %v", err)
+				continue
 			}
 
 			log.Printf("Sent SDP answer %s", string(socketJSON))
@@ -200,7 +213,7 @@ func (connector *RDPWebRTCConnect) Start(id string, token string) {
 				continue
 			}
 
-			if signalmsg.Candidate != nil {
+			if signalmsg.Candidate != nil && signalmsg.Candidate.Candidate != "" {
 				err := peerConnection.AddICECandidate(*signalmsg.Candidate)
 				if err != nil {
 					log.Println("Error adding ICE candidate:", err)

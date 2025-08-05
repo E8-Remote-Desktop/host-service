@@ -171,6 +171,15 @@ func (input *RDPWindowsInput) Init() error {
 }
 
 func (input *RDPWindowsInput) Close() {
+	dll, err := user32util.LoadUser32DLL()
+	if err != nil {
+		log.Fatal("Could not initalize windows input layer")
+	}
+	for key, value := range input.pressedKeys {
+		if value {
+			SendKeyboardInput(dll, key, false)
+		}
+	}
 	input.pressedKeys = make(map[uint16]bool)
 }
 
@@ -221,12 +230,11 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 			SendKeyboardInput(dll, sc, keyDown)
 			input.pressedKeys[sc] = keyDown
 
-		case 2: // Mouse Move + Buttons Event
+		case 2: // Mouse Move
 			if len(data) < 6 {
 				log.Println("Invalid mouse move packet")
 				return
 			}
-			buttons := data[1]
 			dx := int16(binary.BigEndian.Uint16(data[2:4]))
 			dy := int16(binary.BigEndian.Uint16(data[4:6]))
 
@@ -239,7 +247,6 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 				Dy:      int32(dy),
 			}, dll)
 
-			input.handleMouseButtons(buttons)
 		case 3: // Mouse Button Event
 			if len(data) < 3 {
 				log.Println("Invalid mouse button packet")

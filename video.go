@@ -97,7 +97,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	// Create a channel to signal when we should stop
 	done := make(chan struct{})
 	if udpConn, ok := conn.(*net.UDPConn); ok {
-		udpConn.SetReadBuffer(1024 * 1024) // 1MB buffer
+		udpConn.SetReadBuffer(1024 * 2048) // 2048kib buffer
 	}
 
 	// Goroutine to handle context cancellation
@@ -108,7 +108,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 		conn.Close()
 	}()
 
-	buf := make([]byte, 1024*1024) // 1 mib buffer
+	buf := make([]byte, 1500) // 1.5 kib buffer
 
 	for {
 		select {
