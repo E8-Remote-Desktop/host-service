@@ -57,7 +57,7 @@ func (connector *RDPWebRTCConnect) Start(id string, token string) {
 	//ticker := time.NewTicker(30 * time.Second)
 	//defer ticker.Stop()
 	//for range ticker.C {
-	//conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	//conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	//if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 	//log.Println("Ping failed, closing ping loop:", err)
 	//return // Stops ping loop; consider reconnecting
