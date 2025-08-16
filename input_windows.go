@@ -5,6 +5,8 @@ package rdp
 
 import (
 	"encoding/binary"
+	"encoding/json"
+	"fmt"
 	"log"
 	"unsafe"
 
@@ -124,6 +126,11 @@ type INPUT struct {
 	Ki   KEYBDINPUT
 }
 
+type DatachannelMsg struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+}
+
 func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
 	var flags uint32 = KEYEVENTF_SCANCODE
 	if !keyDown {
@@ -238,14 +245,22 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 			dx := int16(binary.BigEndian.Uint16(data[2:4]))
 			dy := int16(binary.BigEndian.Uint16(data[4:6]))
 
-			// Move mouse relative to current position
-			//currentX, currentY := robotgo.Location()
 			//robotgo.MoveRelative(int(dx), int(dy))
+			// Move mouse relative to current position
 			user32util.SendMouseInput(user32util.MouseInput{
 				DwFlags: user32util.MouseEventFMove,
 				Dx:      int32(dx),
 				Dy:      int32(dy),
 			}, dll)
+
+			// Send current cursor position (sync)
+			currentX, currentY := robotgo.Location()
+			syncMsgStruct := &DatachannelMsg{Type: "mouse-pos-sync", Content: fmt.Sprintf("%d,%d", currentX, currentY)}
+			syncMsgJSON, err := json.Marshal(syncMsgStruct)
+			if err != nil {
+				log.Fatal("Could not marshal mouse sync packet %v", err.Error())
+			}
+			dc.SendText(string(syncMsgJSON))
 
 		case 3: // Mouse Button Event
 			if len(data) < 3 {
