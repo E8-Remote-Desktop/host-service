@@ -97,7 +97,13 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	// Create a channel to signal when we should stop
 	done := make(chan struct{})
 	if udpConn, ok := conn.(*net.UDPConn); ok {
-		udpConn.SetReadBuffer(1024 * 2048) // 2048kib buffer
+		/*
+		   seriously don't touch the buffer size, any lower and Windows
+		   connections will start dropping almost every frame, any higher and
+		   latency jumps by 200ms+, and it's impossible to tell that it's this
+		   var
+		*/
+		udpConn.SetReadBuffer(1024 * 2048) // 2048kib buffer,
 	}
 
 	// Goroutine to handle context cancellation
@@ -107,7 +113,9 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 		// Close the connection to unblock ReadFrom
 		conn.Close()
 	}()
-
+	/* THIS IS NOT A BUG, the server really only uses a 1.5 kib buffer for
+	everything but for some reason without the UDP buffer being much bigger it
+	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
 
 	for {
@@ -116,6 +124,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
 			return
 		default:
+			// no more deadlines increases latency by 5-6ms
 			// Set a shorter read deadline for more responsive cancellation
 			//deadline := time.Now().Add(100 * time.Millisecond)
 			//conn.SetReadDeadline(deadline)
