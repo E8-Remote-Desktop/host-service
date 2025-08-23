@@ -2,22 +2,152 @@ package rdp
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/go-gst/go-glib/glib"
+	"github.com/go-gst/go-gst/gst"
 	"github.com/pion/webrtc/v3"
+	"github.com/zieckey/goini"
 )
 
 type RDPAudioVideo struct {
-	cancelRTPTrackInjest context.CancelFunc
-	streamWaitGroup      sync.WaitGroup
-	streamsMutex         sync.Mutex
-	isClosing            bool
+	cancelRTPTrackInjest  context.CancelFunc
+	cancelGstreamerStream context.CancelFunc
+	streamWaitGroup       sync.WaitGroup
+	streamsMutex          sync.Mutex
+	isClosing             bool
 }
 
-func (video *RDPAudioVideo) StartStream() {
+type StreamConfig struct {
+	os        string
+	codec     string //h264 or hevc
+	encoder   string
+	bitrate   int
+	gopsize   int
+	screen    int
+	framerate int
+	mtu       int
+}
+
+func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
+	// TODO OS Based Pipeline Switching
+	rtpCodec := config.codec
+	if config.codec == "hevc" {
+		rtpCodec = "h265"
+	}
+	pipeline := ""
+	switch config.encoder {
+	case "intel":
+		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.screen) +
+			"! d3d11convert" +
+			fmt.Sprintf("! 'video/x-raw(memory:D3D11Memory),framerate=%d/1,format=NV12' ", config.framerate) +
+			fmt.Sprintf("! qsv%senc rate-control=cbr bitrate=%d gop-size=%d low-latency=true target-usage=7 rc-lookahead=0 ", config.codec, config.bitrate, config.gopsize) +
+			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream " +
+			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
+			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d", rtpCodec, config.mtu) +
+			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
+
+	case "amd":
+		// usage=2 because in newer AMD drivers usage=1 for ultra low latency doesn't seem to function
+		pipeline = "! d3d11convert" +
+			fmt.Sprintf("! 'video/x-raw(memory:D3D11Memory),framerate=%s/1,format=NV12' ", config.framerate) +
+			fmt.Sprintf("! amf%senc rate-control=cbr bitrate=%s gop-size=%s usage=2", config.codec, config.bitrate, config.gopsize) +
+			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream " +
+			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
+			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%s", rtpCodec, config.mtu) +
+			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
+	}
+	return pipeline
+}
+
+func (video *RDPAudioVideo) buildGstAudioPipeline(config *StreamConfig) string {
+	// TODO OS Based Selection
+	return "wasapi2src loopback=true low-latency=true " +
+		"! audioresample " +
+		"! audio/x-raw,rate=48000,channels=2 ! audioconvert " +
+		"! opusenc bitrate=128000 frame-size=10 " +
+		"! rtpopuspay pt=97 " +
+		"! udpsink host=127.0.0.1 port=50045 sync=false async=false "
+}
+
+func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfig, pipelineFactory func(*StreamConfig) string) error {
+	gst.Init(nil)
+	mainLoop := glib.NewMainLoop(glib.MainContextDefault(), false)
+
+	pipelineString := pipelineFactory(config)
+
+	pipeline, err := gst.NewPipelineFromString(pipelineString)
+	if err != nil {
+		return err
+	}
+
+	pipeline.GetPipelineBus().AddWatch(func(msg *gst.Message) bool {
+		switch msg.Type() {
+		// why are both -34? bug?
+		//case gst.MessageEOS:
+		//pipeline.BlockSetState(gst.StateNull)
+		//mainLoop.Quit()
+		case gst.MessageError:
+			err := msg.ParseError()
+			fmt.Println("ERROR:", err.Error())
+			if debug := err.DebugString(); debug != "" {
+				fmt.Println("DEBUG:", debug)
+			}
+			mainLoop.Quit()
+		default:
+			// All messages implement a Stringer. However, this is
+			// typically an expensive thing to do and should be avoided.
+			fmt.Println(msg)
+		}
+		return true
+	})
+
+	if err := pipeline.SetState(gst.StatePlaying); err != nil {
+		return err
+	}
+	done := make(chan struct{})
+	go func() {
+		mainLoop.Run()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("Forcing Pipeline Stop")
+		pipeline.BlockSetState(gst.StateNull)
+		mainLoop.Quit()
+		<-done
+
+	case <-done:
+		return nil
+	}
+
+	return nil
+}
+
+func (video *RDPAudioVideo) parseConfig() (*StreamConfig, error) {
+	// TODO OS Selection
+	ini := goini.New()
+	err := ini.ParseFile("C:\\ProgramData\\e8rd\\config.ini")
+	if err != nil {
+		log.Printf("Config Parse Error")
+		return &StreamConfig{}, err
+	}
+	// todo error checking
+	config := &StreamConfig{}
+	config.os, _ = ini.SectionGet("OS", "os")
+	config.codec, _ = ini.SectionGet("Encoding", "codec")
+	config.encoder, _ = ini.SectionGet("Encoding", "encoder")
+	config.bitrate, _ = ini.SectionGetInt("Encoding", "bitrate")
+	config.gopsize, _ = ini.SectionGetInt("Encoding", "gopsize")
+	config.screen, _ = ini.SectionGetInt("Capture", "screen")
+	config.framerate, _ = ini.SectionGetInt("Capture", "framerate")
+	config.mtu, _ = ini.SectionGetInt("Stream", "mtu")
+	return config, nil
 }
 
 func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnection) {
@@ -30,7 +160,24 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	}
 
 	video.isClosing = false
-	video.StartStream()
+
+	ctx, streamCancel := context.WithCancel(context.Background())
+	video.cancelGstreamerStream = streamCancel
+
+	config, err := video.parseConfig()
+	if err != nil {
+		log.Printf("Error parsing config")
+		return
+	}
+	// start video
+	if err := video.StartStream(ctx, config, video.buildGstVideoPipeline); err != nil {
+		log.Printf("Could not start video stream!")
+	}
+
+	// start audio
+	if err := video.StartStream(ctx, config, video.buildGstAudioPipeline); err != nil {
+		log.Printf("Could not start audio stream!")
+	}
 
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
@@ -103,7 +250,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 		   latency jumps by 200ms+, and it's impossible to tell that it's this
 		   var
 		*/
-		udpConn.SetReadBuffer(1024 * 2048) // 2048kib buffer,
+		udpConn.SetReadBuffer(1024 * 1024 * 4)
 	}
 
 	// Goroutine to handle context cancellation
@@ -191,8 +338,30 @@ func (video *RDPAudioVideo) Close() {
 		}
 	}
 
+	if video.cancelGstreamerStream != nil {
+		log.Printf("Closing GST Streams\n")
+		video.isClosing = true
+		video.cancelGstreamerStream()
+
+		// Wait for all goroutines to finish with a timeout
+		done := make(chan struct{})
+		go func() {
+			video.streamWaitGroup.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			log.Printf("All Video streams closed successfully\n")
+		case <-time.After(2 * time.Second):
+			log.Printf("Timeout waiting for Video streams to close\n")
+		}
+
+	}
+
 	video.cancelRTPTrackInjest = nil
 	video.isClosing = false
+	video.cancelGstreamerStream = nil
 }
 
 // CloseWithTimeout provides more control over the closing timeout
@@ -220,7 +389,28 @@ func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
 		}
 	}
 
+	if video.cancelGstreamerStream != nil {
+		log.Printf("Closing RTP Injest Loops with timeout %v\n", timeout)
+		video.isClosing = true
+		video.cancelGstreamerStream()
+
+		done := make(chan struct{})
+		go func() {
+			video.streamWaitGroup.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			log.Printf("All GST streams closed successfully\n")
+		case <-time.After(timeout):
+			log.Printf("Timeout waiting for GST streams to close\n")
+			return context.DeadlineExceeded
+		}
+	}
+
 	video.cancelRTPTrackInjest = nil
+	video.cancelGstreamerStream = nil
 	video.isClosing = false
 	return nil
 }
