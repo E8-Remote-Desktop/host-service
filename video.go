@@ -114,6 +114,7 @@ func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfi
 		log.Printf("Could not start stream for %s", pipelineString)
 	}
 	done := make(chan struct{})
+	log.Printf("Starting pipeline %s", pipelineString)
 	go func() {
 		mainLoop.Run()
 		close(done)
