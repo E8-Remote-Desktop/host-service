@@ -114,7 +114,7 @@ func (video *RDPAudioVideo) StartStream(config *StreamConfig, pipelineFactory fu
 	})
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
-		log.Printf("Could not start stream for %s", pipelineString)
+		log.Printf("Could not start stream for %s, err: %v", pipelineString, err)
 	}
 	log.Printf("Readied pipeline %s", pipelineString)
 	return nil
@@ -189,12 +189,12 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	video.mainLoop = glib.NewMainLoop(glib.MainContextDefault(), false)
 	// start video
 	if err := video.StartStream(config, video.buildGstVideoPipeline); err != nil {
-		log.Printf("Could not start video stream")
+		log.Printf("Could not start video stream, %v", err)
 	}
 
 	// start audio
 	if err := video.StartStream(config, video.buildGstAudioPipeline); err != nil {
-		log.Printf("Could not start audio stream")
+		log.Printf("Could not start audio stream %v", err)
 	}
 
 	go func() {
