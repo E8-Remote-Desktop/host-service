@@ -53,7 +53,8 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 
 	case "amd":
 		// usage=2 because in newer AMD drivers usage=1 for ultra low latency doesn't seem to function
-		pipeline = "! d3d11convert" +
+		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.screen) +
+			"! d3d11convert" +
 			fmt.Sprintf("! 'video/x-raw(memory:D3D11Memory),framerate=%s/1,format=NV12' ", config.framerate) +
 			fmt.Sprintf("! amf%senc rate-control=cbr bitrate=%s gop-size=%s usage=2", config.codec, config.bitrate, config.gopsize) +
 			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream " +
@@ -66,7 +67,7 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 
 func (video *RDPAudioVideo) buildGstAudioPipeline(config *StreamConfig) string {
 	// TODO OS Based Selection
-	return "wasapi2src loopback=true low-latency=true " +
+	return "wasapisrc loopback=true low-latency=true " +
 		"! audioresample " +
 		"! audio/x-raw,rate=48000,channels=2 ! audioconvert " +
 		"! opusenc bitrate=128000 frame-size=10 " +
