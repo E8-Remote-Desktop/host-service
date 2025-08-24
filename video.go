@@ -51,6 +51,8 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d", rtpCodec, config.mtu) +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 
+		log.Println(pipeline)
+
 	case "amd":
 		// usage=2 because in newer AMD drivers usage=1 for ultra low latency doesn't seem to function
 		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.screen) +
@@ -61,6 +63,7 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
 			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%s", rtpCodec, config.mtu) +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
+		log.Println(pipeline)
 	}
 	return pipeline
 }
