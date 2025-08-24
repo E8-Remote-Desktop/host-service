@@ -139,14 +139,39 @@ func (video *RDPAudioVideo) parseConfig() (*StreamConfig, error) {
 	}
 	// todo error checking
 	config := &StreamConfig{}
-	config.os, _ = ini.SectionGet("OS", "os")
-	config.codec, _ = ini.SectionGet("Encoding", "codec")
-	config.encoder, _ = ini.SectionGet("Encoding", "encoder")
-	config.bitrate, _ = ini.SectionGetInt("Encoding", "bitrate")
-	config.gopsize, _ = ini.SectionGetInt("Encoding", "gopsize")
-	config.screen, _ = ini.SectionGetInt("Capture", "screen")
-	config.framerate, _ = ini.SectionGetInt("Capture", "framerate")
-	config.mtu, _ = ini.SectionGetInt("Stream", "mtu")
+	ok := false
+	config.os, ok = ini.SectionGet("OS", "os")
+	if !ok {
+		log.Printf("Invalid OS Parameter")
+	}
+	config.codec, ok = ini.SectionGet("Encoding", "codec")
+	if !ok {
+		log.Printf("Invalid Codec Parameter")
+	}
+	config.encoder, ok = ini.SectionGet("Encoding", "encoder")
+	if !ok {
+		log.Printf("Invalid Encoder Parameter")
+	}
+	config.bitrate, ok = ini.SectionGetInt("Encoding", "bitrate")
+	if !ok {
+		log.Printf("Invalid Bitrate Parameter")
+	}
+	config.gopsize, ok = ini.SectionGetInt("Encoding", "gopsize")
+	if !ok {
+		log.Printf("Invalid GOP Size Parameter")
+	}
+	config.screen, ok = ini.SectionGetInt("Capture", "screen")
+	if !ok {
+		log.Printf("Invalid Screen Index Parameter")
+	}
+	config.framerate, ok = ini.SectionGetInt("Capture", "framerate")
+	if !ok {
+		log.Printf("Invalid Framerate Parameter")
+	}
+	config.mtu, ok = ini.SectionGetInt("Stream", "mtu")
+	if !ok {
+		log.Printf("Invalid MTU Parameter")
+	}
 	return config, nil
 }
 
