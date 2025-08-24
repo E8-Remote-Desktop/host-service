@@ -15,8 +15,10 @@ import (
 )
 
 type RDPAudioVideo struct {
-	mainLoop             *glib.MainLoop
-	mainLoopCancel       context.CancelFunc
+	mainLoop       *glib.MainLoop
+	mainLoopCancel context.CancelFunc
+
+	pipelines            []*gst.Pipeline
 	cancelRTPTrackInjest context.CancelFunc
 	streamWaitGroup      sync.WaitGroup
 	streamsMutex         sync.Mutex
@@ -87,6 +89,8 @@ func (video *RDPAudioVideo) StartStream(config *StreamConfig, pipelineFactory fu
 	if err != nil {
 		return err
 	}
+
+	video.pipelines = append(video.pipelines, pipeline)
 
 	pipeline.GetPipelineBus().AddWatch(func(msg *gst.Message) bool {
 		switch msg.Type() {
@@ -367,6 +371,11 @@ func (video *RDPAudioVideo) Close() {
 	}
 
 	if video.mainLoopCancel != nil {
+		for _, p := range video.pipelines {
+			p.SetState(gst.StateNull) // stop before unref
+			p.Unref()
+		}
+		video.pipelines = nil
 		log.Printf("Closing GST Streams\n")
 		video.isClosing = true
 		video.mainLoopCancel()
@@ -418,6 +427,11 @@ func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
 	}
 
 	if video.mainLoopCancel != nil {
+		for _, p := range video.pipelines {
+			p.SetState(gst.StateNull) // stop before unref
+			p.Unref()
+		}
+		video.pipelines = nil
 		log.Printf("Closing RTP Injest Loops with timeout %v\n", timeout)
 		video.isClosing = true
 		video.mainLoopCancel()
