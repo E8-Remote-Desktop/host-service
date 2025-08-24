@@ -45,9 +45,9 @@ func (connector *RDPWebRTCConnect) getParamsFromConfig() ([]string, error) {
 		log.Printf("Invalid API URL Parameter")
 		return []string{}, fmt.Errorf("could not find hostname in config")
 	}
-	token, ok := ini.SectionGet("Server", "name")
+	token, ok := ini.SectionGet("Server", "token")
 	if !ok {
-		log.Printf("Invalid API URL Parameter")
+		log.Printf("Invalid API token Parameter")
 		return []string{}, fmt.Errorf("could not find hostname in config")
 	}
 
