@@ -111,7 +111,7 @@ func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfi
 	})
 
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
-		return err
+		log.Printf("Could not start stream for %s", pipelineString)
 	}
 	done := make(chan struct{})
 	go func() {
@@ -199,14 +199,10 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 		return
 	}
 	// start video
-	if err := video.StartStream(ctx, config, video.buildGstVideoPipeline); err != nil {
-		log.Printf("Could not start video stream!")
-	}
+	go video.StartStream(ctx, config, video.buildGstVideoPipeline)
 
 	// start audio
-	if err := video.StartStream(ctx, config, video.buildGstAudioPipeline); err != nil {
-		log.Printf("Could not start audio stream!")
-	}
+	go video.StartStream(ctx, config, video.buildGstAudioPipeline)
 
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
