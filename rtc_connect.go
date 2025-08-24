@@ -24,7 +24,10 @@ type SocketMessage struct {
 	Content json.RawMessage `json:"content"`
 }
 
-type RDPWebRTCConnect struct{}
+type RDPWebRTCConnect struct {
+	conn           *websocket.Conn
+	peerConnection *webrtc.PeerConnection
+}
 
 func (connector *RDPWebRTCConnect) getParamsFromConfig() ([]string, error) {
 	// TODO OS Selection
@@ -75,18 +78,15 @@ func (connector *RDPWebRTCConnect) Start() {
 			InsecureSkipVerify: true,
 		},
 	}
-
-	conn, _, err := dialer.Dial(fmt.Sprintf("wss://%s/ws?id=%s&type=machine", apiURL, my_id), header)
+	connector.conn, _, err = dialer.Dial(fmt.Sprintf("wss://%s/ws?id=%s&type=machine", apiURL, my_id), header)
 	if err != nil {
 		log.Fatalf("Error connecting to websocket server %v", err)
 	}
 
-	defer conn.Close()
+	defer connector.conn.Close()
 
 	log.Println("Host has connected to broker websocket, waiting for client connection...")
 	// Setup stuff
-
-	var peerConnection *webrtc.PeerConnection
 
 	var captureStream AudioVideo = &RDPAudioVideo{}
 	var input Input = GetInput()
@@ -104,7 +104,7 @@ func (connector *RDPWebRTCConnect) Start() {
 	//}()
 	for {
 
-		_, msgBytes, err := conn.ReadMessage()
+		_, msgBytes, err := connector.conn.ReadMessage()
 		//log.Println("Recieved message?")
 		if err != nil {
 			log.Println("Error reading WebSocket:", err)
@@ -132,13 +132,13 @@ func (connector *RDPWebRTCConnect) Start() {
 			captureStream.Close()
 			input.Close()
 
-			if peerConnection != nil {
+			if connector.peerConnection != nil {
 				log.Println("Closing old PeerConnection before accepting new offer")
-				peerConnection.Close()
-				peerConnection = nil
+				connector.peerConnection.Close()
+				connector.peerConnection = nil
 			}
 
-			peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
+			connector.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
 				ICEServers: []webrtc.ICEServer{
 					{
 						URLs: []string{"stun:stun.l.google.com:19302"},
@@ -156,10 +156,10 @@ func (connector *RDPWebRTCConnect) Start() {
 			if err := input.Init(); err != nil {
 				log.Fatalf("Could not init input %v\n", err)
 			}
-			input.AcceptDataChannel(peerConnection)
+			input.AcceptDataChannel(connector.peerConnection)
 
 			// Attach media channel
-			captureStream.AttachMediaChannel(peerConnection)
+			captureStream.AttachMediaChannel(connector.peerConnection)
 
 			// Set remote offer
 			offer := webrtc.SessionDescription{
@@ -167,25 +167,25 @@ func (connector *RDPWebRTCConnect) Start() {
 				SDP:  signalmsg.SDP,
 			}
 
-			err = peerConnection.SetRemoteDescription(offer)
+			err = connector.peerConnection.SetRemoteDescription(offer)
 			if err != nil {
 				log.Fatal(err)
 			}
 
 			for _, candidate := range pendingCandidates {
-				if err := peerConnection.AddICECandidate(*candidate); err != nil {
+				if err := connector.peerConnection.AddICECandidate(*candidate); err != nil {
 					log.Println("Error adding pending ICE candidate:", err)
 				}
 			}
 			pendingCandidates = nil
 
 			// Create answer
-			answer, err := peerConnection.CreateAnswer(nil)
+			answer, err := connector.peerConnection.CreateAnswer(nil)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			err = peerConnection.SetLocalDescription(answer)
+			err = connector.peerConnection.SetLocalDescription(answer)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -204,7 +204,7 @@ func (connector *RDPWebRTCConnect) Start() {
 				Content: answerJSON,
 			}
 			socketJSON, _ := json.Marshal(socketMsg)
-			err = conn.WriteMessage(websocket.TextMessage, socketJSON)
+			err = connector.conn.WriteMessage(websocket.TextMessage, socketJSON)
 			if err != nil {
 				log.Printf("Could not send SDP Answer %v", err)
 				continue
@@ -213,7 +213,7 @@ func (connector *RDPWebRTCConnect) Start() {
 			log.Printf("Sent SDP answer %s", string(socketJSON))
 
 			// Handle ICE candidates from this peer
-			peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+			connector.peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
 
 				if c == nil {
 					return
@@ -233,7 +233,7 @@ func (connector *RDPWebRTCConnect) Start() {
 					Content: candidateJSON,
 				}
 				sendJSON, _ := json.Marshal(sendMessage)
-				conn.WriteMessage(websocket.TextMessage, []byte(sendJSON))
+				connector.conn.WriteMessage(websocket.TextMessage, []byte(sendJSON))
 			})
 			// Logging
 			//peerConnection.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
@@ -245,19 +245,37 @@ func (connector *RDPWebRTCConnect) Start() {
 
 		case "ice":
 			log.Printf("Received ICE candidate %s\n", signalmsg.Candidate.Candidate)
-			if peerConnection == nil {
+			if connector.peerConnection == nil {
 				log.Println("Missed packets?! ICE Candidates recieved before offer, queuing")
 				pendingCandidates = append(pendingCandidates, signalmsg.Candidate)
 				continue
 			}
 
 			if signalmsg.Candidate != nil && signalmsg.Candidate.Candidate != "" {
-				err := peerConnection.AddICECandidate(*signalmsg.Candidate)
+				err := connector.peerConnection.AddICECandidate(*signalmsg.Candidate)
 				if err != nil {
 					log.Println("Error adding ICE candidate:", err)
 				}
 			}
 		}
+	}
+
+}
+
+func (connector *RDPWebRTCConnect) Stop() {
+	log.Println("Force stop signal detected, foricably closing")
+	var err error
+	if connector.conn != nil {
+		err = connector.conn.Close()
+	}
+	if err != nil {
+		log.Printf("ERROR Could not cleanly close websocket!")
+	}
+	if connector.peerConnection != nil {
+		connector.peerConnection.Close()
+	}
+	if err != nil {
+		log.Printf("ERROR Could not cleanly close WebRTC connection SOMEONE COULD STILL BE CONNECTED REBOOT NOW!!")
 	}
 
 }

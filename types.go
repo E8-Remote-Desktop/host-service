@@ -15,4 +15,5 @@ type AudioVideo interface {
 
 type WebRTCConnect interface {
 	Start()
+	Stop()
 }
