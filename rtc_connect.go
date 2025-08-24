@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
+	"github.com/zieckey/goini"
 )
 
 type SignalMessage struct {
@@ -26,6 +26,23 @@ type SocketMessage struct {
 
 type RDPWebRTCConnect struct{}
 
+func (connector *RDPWebRTCConnect) getAPIURLFromConfig() (string, error) {
+	// TODO OS Selection
+	ini := goini.New()
+	err := ini.ParseFile("C:\\ProgramData\\e8rd\\config.ini")
+	if err != nil {
+		log.Printf("Config Parse Error")
+		return "", err
+	}
+	// todo error checking
+	url, ok := ini.SectionGet("Server", "url")
+	if !ok {
+		log.Printf("Invalid API URL Parameter")
+		return "", fmt.Errorf("could not find api url in config")
+	}
+	return url, nil
+}
+
 // Also handles the socket connection
 func (connector *RDPWebRTCConnect) Start(id string, token string) {
 	// Create the peer connection
@@ -38,7 +55,13 @@ func (connector *RDPWebRTCConnect) Start(id string, token string) {
 		},
 	}
 
-	conn, _, err := dialer.Dial(fmt.Sprintf("wss://%s/ws?id=%s&type=machine", os.Getenv("API_URL"), my_id), header)
+	apiURL, err := connector.getAPIURLFromConfig()
+	if err != nil {
+		log.Printf("Could not find API Url")
+		return
+	}
+
+	conn, _, err := dialer.Dial(fmt.Sprintf("wss://%s/ws?id=%s&type=machine", apiURL, my_id), header)
 	if err != nil {
 		log.Fatalf("Error connecting to websocket server %v", err)
 	}
