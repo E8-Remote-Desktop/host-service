@@ -79,7 +79,6 @@ func (video *RDPAudioVideo) buildGstAudioPipeline(config *StreamConfig) string {
 }
 
 func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfig, pipelineFactory func(*StreamConfig) string) error {
-	gst.Init(nil)
 	mainLoop := glib.NewMainLoop(glib.MainContextDefault(), false)
 
 	pipelineString := pipelineFactory(config)
@@ -199,6 +198,8 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 		log.Printf("Error parsing config")
 		return
 	}
+
+	gst.Init(nil)
 	// start video
 	go video.StartStream(ctx, config, video.buildGstVideoPipeline)
 
