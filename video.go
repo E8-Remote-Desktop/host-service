@@ -15,11 +15,12 @@ import (
 )
 
 type RDPAudioVideo struct {
-	cancelRTPTrackInjest  context.CancelFunc
-	cancelGstreamerStream context.CancelFunc
-	streamWaitGroup       sync.WaitGroup
-	streamsMutex          sync.Mutex
-	isClosing             bool
+	mainLoop             *glib.MainLoop
+	mainLoopCancel       context.CancelFunc
+	cancelRTPTrackInjest context.CancelFunc
+	streamWaitGroup      sync.WaitGroup
+	streamsMutex         sync.Mutex
+	isClosing            bool
 }
 
 type StreamConfig struct {
@@ -78,8 +79,7 @@ func (video *RDPAudioVideo) buildGstAudioPipeline(config *StreamConfig) string {
 		"! udpsink host=127.0.0.1 port=50045 sync=false async=false "
 }
 
-func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfig, pipelineFactory func(*StreamConfig) string) error {
-	mainLoop := glib.NewMainLoop(glib.MainContextDefault(), false)
+func (video *RDPAudioVideo) StartStream(config *StreamConfig, pipelineFactory func(*StreamConfig) string) error {
 
 	pipelineString := pipelineFactory(config)
 
@@ -100,7 +100,7 @@ func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfi
 			if debug := err.DebugString(); debug != "" {
 				fmt.Println("DEBUG:", debug)
 			}
-			mainLoop.Quit()
+			video.mainLoop.Quit()
 		default:
 			// All messages implement a Stringer. However, this is
 			// typically an expensive thing to do and should be avoided.
@@ -112,24 +112,7 @@ func (video *RDPAudioVideo) StartStream(ctx context.Context, config *StreamConfi
 	if err := pipeline.SetState(gst.StatePlaying); err != nil {
 		log.Printf("Could not start stream for %s", pipelineString)
 	}
-	done := make(chan struct{})
-	log.Printf("Starting pipeline %s", pipelineString)
-	go func() {
-		mainLoop.Run()
-		close(done)
-	}()
-
-	select {
-	case <-ctx.Done():
-		log.Println("Forcing Pipeline Stop")
-		pipeline.BlockSetState(gst.StateNull)
-		mainLoop.Quit()
-		<-done
-
-	case <-done:
-		return nil
-	}
-
+	log.Printf("Readied pipeline %s", pipelineString)
 	return nil
 }
 
@@ -190,9 +173,6 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 
 	video.isClosing = false
 
-	ctx, streamCancel := context.WithCancel(context.Background())
-	video.cancelGstreamerStream = streamCancel
-
 	config, err := video.parseConfig()
 	if err != nil {
 		log.Printf("Error parsing config")
@@ -200,11 +180,32 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	}
 
 	gst.Init(nil)
+	ctx, streamCancel := context.WithCancel(context.Background())
+	video.mainLoopCancel = streamCancel
+	video.mainLoop = glib.NewMainLoop(glib.MainContextDefault(), false)
 	// start video
-	go video.StartStream(ctx, config, video.buildGstVideoPipeline)
+	if err := video.StartStream(config, video.buildGstVideoPipeline); err != nil {
+		log.Printf("Could not start video stream")
+	}
 
 	// start audio
-	go video.StartStream(ctx, config, video.buildGstAudioPipeline)
+	if err := video.StartStream(config, video.buildGstAudioPipeline); err != nil {
+		log.Printf("Could not start audio stream")
+	}
+
+	go func() {
+		// Watch context cancellation
+		go func() {
+			<-ctx.Done()
+			log.Println("Context canceled: stopping main loop")
+			video.mainLoop.Quit()
+		}()
+
+		// Run the GLib main loop
+		log.Println("Starting GStreamer main loop")
+		video.mainLoop.Run()
+		log.Println("GStreamer main loop stopped")
+	}()
 
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
@@ -365,10 +366,10 @@ func (video *RDPAudioVideo) Close() {
 		}
 	}
 
-	if video.cancelGstreamerStream != nil {
+	if video.mainLoopCancel != nil {
 		log.Printf("Closing GST Streams\n")
 		video.isClosing = true
-		video.cancelGstreamerStream()
+		video.mainLoopCancel()
 
 		// Wait for all goroutines to finish with a timeout
 		done := make(chan struct{})
@@ -388,7 +389,7 @@ func (video *RDPAudioVideo) Close() {
 
 	video.cancelRTPTrackInjest = nil
 	video.isClosing = false
-	video.cancelGstreamerStream = nil
+	video.mainLoopCancel = nil
 }
 
 // CloseWithTimeout provides more control over the closing timeout
@@ -416,10 +417,10 @@ func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
 		}
 	}
 
-	if video.cancelGstreamerStream != nil {
+	if video.mainLoopCancel != nil {
 		log.Printf("Closing RTP Injest Loops with timeout %v\n", timeout)
 		video.isClosing = true
-		video.cancelGstreamerStream()
+		video.mainLoopCancel()
 
 		done := make(chan struct{})
 		go func() {
@@ -437,7 +438,7 @@ func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
 	}
 
 	video.cancelRTPTrackInjest = nil
-	video.cancelGstreamerStream = nil
+	video.mainLoopCancel = nil
 	video.isClosing = false
 	return nil
 }
