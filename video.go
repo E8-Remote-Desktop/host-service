@@ -373,17 +373,22 @@ func (video *RDPAudioVideo) Close() {
 
 	if video.mainLoopCancel != nil {
 		for _, p := range video.pipelines {
-			// the go gc doesn't seem to want to unref this itself, which makes gst mad
-			// tell go that we'll handle this ourselves
-			// todo maybe use AddCleanup to tell Go how to handle this?
-			runtime.SetFinalizer(p, nil)
-			p.SetState(gst.StateNull) // stop before unref
-			p.Unref()
+			if err := p.SetState(gst.StateNull); err != nil {
+				log.Printf("ERROR COULD NOT STOP PIPELINE FROM PLAYING STATE, %v!", err)
+			} // stop before unref
 		}
 		video.pipelines = nil
 		log.Printf("Closing GST Streams\n")
 		video.isClosing = true
 		video.mainLoopCancel()
+
+		for _, p := range video.pipelines {
+			// the go gc doesn't seem to want to unref this itself, which makes gst mad
+			// tell go that we'll handle this ourselves
+			// todo maybe use AddCleanup to tell Go how to handle this?
+			runtime.SetFinalizer(p, nil)
+			p.Unref()
+		}
 
 		// Wait for all goroutines to finish with a timeout
 		done := make(chan struct{})
@@ -433,17 +438,22 @@ func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
 
 	if video.mainLoopCancel != nil {
 		for _, p := range video.pipelines {
+			if err := p.SetState(gst.StateNull); err != nil {
+				log.Printf("ERROR COULD NOT STOP PIPELINE FROM PLAYING STATE, %v!", err)
+			} // stop before unref
+		}
+		video.pipelines = nil
+		log.Printf("Closing GST Streams\n")
+		video.isClosing = true
+		video.mainLoopCancel()
+
+		for _, p := range video.pipelines {
 			// the go gc doesn't seem to want to unref this itself, which makes gst mad
 			// tell go that we'll handle this ourselves
 			// todo maybe use AddCleanup to tell Go how to handle this?
 			runtime.SetFinalizer(p, nil)
-			p.SetState(gst.StateNull) // stop before unref
 			p.Unref()
 		}
-		video.pipelines = nil
-		log.Printf("Closing RTP Injest Loops with timeout %v\n", timeout)
-		video.isClosing = true
-		video.mainLoopCancel()
 
 		done := make(chan struct{})
 		go func() {
