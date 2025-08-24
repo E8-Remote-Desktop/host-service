@@ -26,39 +26,54 @@ type SocketMessage struct {
 
 type RDPWebRTCConnect struct{}
 
-func (connector *RDPWebRTCConnect) getAPIURLFromConfig() (string, error) {
+func (connector *RDPWebRTCConnect) getParamsFromConfig() ([]string, error) {
 	// TODO OS Selection
 	ini := goini.New()
 	err := ini.ParseFile("C:\\ProgramData\\e8rd\\config.ini")
 	if err != nil {
 		log.Printf("Config Parse Error")
-		return "", err
+		return []string{}, err
 	}
 	// todo error checking
 	url, ok := ini.SectionGet("Server", "url")
 	if !ok {
 		log.Printf("Invalid API URL Parameter")
-		return "", fmt.Errorf("could not find api url in config")
+		return []string{}, fmt.Errorf("could not find api url in config")
 	}
-	return url, nil
+	hostname, ok := ini.SectionGet("Server", "name")
+	if !ok {
+		log.Printf("Invalid API URL Parameter")
+		return []string{}, fmt.Errorf("could not find hostname in config")
+	}
+	token, ok := ini.SectionGet("Server", "name")
+	if !ok {
+		log.Printf("Invalid API URL Parameter")
+		return []string{}, fmt.Errorf("could not find hostname in config")
+	}
+
+	return []string{url, hostname, token}, nil
 }
 
 // Also handles the socket connection
-func (connector *RDPWebRTCConnect) Start(id string, token string) {
+func (connector *RDPWebRTCConnect) Start() {
 	// Create the peer connection
-	my_id := id
+
+	configOptions, err := connector.getParamsFromConfig()
+	if err != nil {
+		log.Printf("Could not find API Url")
+		return
+	}
+
+	apiURL := configOptions[0]
+	my_id := configOptions[1]
+	token := configOptions[2]
+
 	header := http.Header{}
 	header.Set("Cookie", fmt.Sprintf("user-session=%s", token))
 	dialer := websocket.Dialer{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
-	}
-
-	apiURL, err := connector.getAPIURLFromConfig()
-	if err != nil {
-		log.Printf("Could not find API Url")
-		return
 	}
 
 	conn, _, err := dialer.Dial(fmt.Sprintf("wss://%s/ws?id=%s&type=machine", apiURL, my_id), header)
