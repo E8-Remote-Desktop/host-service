@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"time"
 
@@ -372,6 +373,10 @@ func (video *RDPAudioVideo) Close() {
 
 	if video.mainLoopCancel != nil {
 		for _, p := range video.pipelines {
+			// the go gc doesn't seem to want to unref this itself, which makes gst mad
+			// tell go that we'll handle this ourselves
+			// todo maybe use AddCleanup to tell Go how to handle this?
+			runtime.SetFinalizer(p, nil)
 			p.SetState(gst.StateNull) // stop before unref
 			p.Unref()
 		}
@@ -428,6 +433,10 @@ func (video *RDPAudioVideo) CloseWithTimeout(timeout time.Duration) error {
 
 	if video.mainLoopCancel != nil {
 		for _, p := range video.pipelines {
+			// the go gc doesn't seem to want to unref this itself, which makes gst mad
+			// tell go that we'll handle this ourselves
+			// todo maybe use AddCleanup to tell Go how to handle this?
+			runtime.SetFinalizer(p, nil)
 			p.SetState(gst.StateNull) // stop before unref
 			p.Unref()
 		}
