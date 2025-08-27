@@ -259,11 +259,11 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	log.Println("RTP Stream Started")
 
 	video.streamWaitGroup.Add(2)
-	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack)
-	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack)
+	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack, config)
+	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack, config)
 }
 
-func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP) {
+func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP, config *StreamConfig) {
 	defer video.streamWaitGroup.Done()
 
 	conn, err := net.ListenPacket("udp", listenAddr)
@@ -298,7 +298,9 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
 	var lastSendTime time.Time
-	const minPacketInterval = 100 * time.Microsecond // 100μs between packets
+	// optimize for 1ms (1000 microSecond) latency
+	minPacketInterval := time.Duration(1000/(config.bitrate/(8*config.mtu))) * time.Microsecond
+
 	for {
 		select {
 		case <-done:
