@@ -298,8 +298,8 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
 	var lastSendTime time.Time
-	// optimize for 1ms (1000 microSecond) latency
-	minPacketInterval := time.Duration(1000/(config.bitrate/(8*config.mtu))) * time.Microsecond
+	// optimize for around 1ms (1000 microSecond) latency
+	minPacketInterval := time.Duration(1000/((config.bitrate)/((config.mtu*8)/1000))) * time.Microsecond
 	log.Printf("Selected pacing of %v\n", minPacketInterval)
 
 	for {
