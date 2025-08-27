@@ -339,10 +339,27 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 				}
 			}
 
+			var lastPacketTime time.Time
+			var packetCount int
+
 			_, writeErr := track.Write(buf[:n])
 			if writeErr != nil {
 				log.Printf("Failed to write RTP to track: %v", writeErr)
 			}
+			now := time.Now()
+			if !lastPacketTime.IsZero() {
+				interval := now.Sub(lastPacketTime)
+				if interval < 1*time.Millisecond {
+					packetCount++
+					log.Printf("BURST: Packet %d sent %v after previous", packetCount, interval)
+				} else {
+					if packetCount > 0 {
+						log.Printf("End of burst: %d packets", packetCount+1)
+						packetCount = 0
+					}
+				}
+			}
+			lastPacketTime = now
 		}
 	}
 }
