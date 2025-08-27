@@ -298,6 +298,8 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
 
+	var lastPacketTime time.Time
+	var packetCount int
 	for {
 		select {
 		case <-done:
@@ -338,9 +340,6 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 					continue
 				}
 			}
-
-			var lastPacketTime time.Time
-			var packetCount int
 
 			_, writeErr := track.Write(buf[:n])
 			if writeErr != nil {
