@@ -259,11 +259,11 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	log.Println("RTP Stream Started")
 
 	video.streamWaitGroup.Add(2)
-	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack)
-	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack)
+	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack, config.bitrate)
+	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack, config.bitrate)
 }
 
-func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP) {
+func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP, bitrate int) {
 	defer video.streamWaitGroup.Done()
 
 	conn, err := net.ListenPacket("udp", listenAddr)
@@ -297,8 +297,9 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	everything but for some reason without the UDP buffer being much bigger it
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
-	var lastSendTime time.Time
-	const minPacketInterval = 100 * time.Microsecond // 100μs between packets
+	// pacing vars
+	var mediaStart time.Time
+	var mediaElapsed time.Duration
 	for {
 		select {
 		case <-done:
@@ -341,16 +342,24 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			}
 			// pace the packets out
 			now := time.Now()
-			if !lastSendTime.IsZero() {
-				elapsed := now.Sub(lastSendTime)
-				if elapsed < minPacketInterval {
-					log.Printf("sleeping")
-					time.Sleep(minPacketInterval - elapsed)
-				}
-			} else {
-				log.Printf("init packet")
+			if mediaStart.IsZero() {
+				// First packet → anchor media clock
+				mediaStart = now
+				mediaElapsed = 0
+				log.Printf("init packet for %s", track.StreamID())
 			}
-			lastSendTime = time.Now()
+			// Approximate media duration represented by this packet
+			pktDuration := time.Duration(float64(n*8) / float64(bitrate) * float64(time.Second))
+			mediaElapsed += pktDuration
+
+			// Target send time based on media pacing
+			targetSendTime := mediaStart.Add(mediaElapsed)
+			if now.Before(targetSendTime) {
+				sleepFor := targetSendTime.Sub(now)
+				// Debug log, remove if too chatty
+				// log.Printf("pacing %s: sleeping %v", track.StreamID(), sleepFor)
+				time.Sleep(sleepFor)
+			}
 
 			_, writeErr := track.Write(buf[:n])
 			if writeErr != nil {
