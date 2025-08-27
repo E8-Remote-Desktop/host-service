@@ -297,9 +297,8 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	everything but for some reason without the UDP buffer being much bigger it
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
-
-	var lastPacketTime time.Time
-	var packetCount int
+	var lastSendTime time.Time
+	const minPacketInterval = 100 * time.Microsecond // 100μs between packets
 	for {
 		select {
 		case <-done:
@@ -340,25 +339,22 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 					continue
 				}
 			}
+			// pace the packets out
+			now := time.Now()
+			if !lastSendTime.IsZero() {
+				elapsed := now.Sub(lastSendTime)
+				if elapsed < minPacketInterval {
+					time.Sleep(minPacketInterval - elapsed)
+				}
+			} else {
+				log.Printf("init packet")
+			}
+			lastSendTime = time.Now()
 
 			_, writeErr := track.Write(buf[:n])
 			if writeErr != nil {
 				log.Printf("Failed to write RTP to track: %v", writeErr)
 			}
-			now := time.Now()
-			if !lastPacketTime.IsZero() {
-				interval := now.Sub(lastPacketTime)
-				if interval < 1*time.Millisecond {
-					packetCount++
-					log.Printf("BURST: Packet %d sent %v after previous", packetCount, interval)
-				} else {
-					if packetCount > 0 {
-						log.Printf("End of burst: %d packets", packetCount+1)
-						packetCount = 0
-					}
-				}
-			}
-			lastPacketTime = now
 		}
 	}
 }
