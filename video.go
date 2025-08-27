@@ -299,7 +299,9 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	buf := make([]byte, 1500) // 1.5 kib buffer
 	var lastSendTime time.Time
 	// optimize for around 1ms (1000 microSecond) latency
-	minPacketInterval := time.Duration(1000/((config.bitrate)/((config.mtu*8)/1000))) * time.Microsecond
+	//minPacketInterval := time.Duration(1000/((config.bitrate)/((config.mtu*8)/1000))) * time.Microsecond
+	// set packet smoothing 1 microsecond for every 5 mbit
+	minPacketInterval := time.Duration(config.bitrate/5000) * time.Microsecond
 	log.Printf("Selected pacing of %v\n", minPacketInterval)
 
 	for {
