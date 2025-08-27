@@ -350,6 +350,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			}
 
 			if now := time.Now(); now.Before(nextSendTime) {
+				log.Printf("sleeping")
 				time.Sleep(nextSendTime.Sub(now))
 			}
 
