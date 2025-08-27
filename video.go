@@ -300,6 +300,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	var lastSendTime time.Time
 	// optimize for 1ms (1000 microSecond) latency
 	minPacketInterval := time.Duration(1000/(config.bitrate/(8*config.mtu))) * time.Microsecond
+	log.Printf("Selected pacing of %v\n", minPacketInterval)
 
 	for {
 		select {
@@ -346,7 +347,6 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			if !lastSendTime.IsZero() {
 				elapsed := now.Sub(lastSendTime)
 				if elapsed < minPacketInterval {
-					log.Printf("sleeping")
 					time.Sleep(minPacketInterval - elapsed)
 				}
 			} else {
