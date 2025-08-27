@@ -343,6 +343,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 			now := time.Now()
 			if !lastSendTime.IsZero() {
 				elapsed := now.Sub(lastSendTime)
+				log.Printf("%s time since last packet", elapsed)
 				if elapsed < minPacketInterval {
 					time.Sleep(minPacketInterval - elapsed)
 				}
