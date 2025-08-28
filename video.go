@@ -283,7 +283,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 		   latency jumps by 200ms+, and it's impossible to tell that it's this
 		   var
 		*/
-		udpConn.SetReadBuffer(1024 * 1024 * 4)
+		udpConn.SetReadBuffer(1024 * 1024 * 1.5)
 	}
 
 	// Goroutine to handle context cancellation
