@@ -298,72 +298,72 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	/* THIS IS NOT A BUG, the server really only uses a 1.5 kib buffer for
 	everything but for some reason without the UDP buffer being much bigger it
 	starts dropping packets, zero clue why this doesn't happen on Linux */
-	buf := make([]byte, 1500) // 1.5 kib buffer
+	//buf := make([]byte, 1500) // 1.5 kib buffer
 	//var nextSendTime time.Time
 	// optimize for around 1ms (1000 microSecond) latency
 	//minPacketInterval := time.Duration(1000/((config.bitrate)/((config.mtu*8)/1000))) * time.Microsecond
 	// set packet smoothing 1 microsecond for every 5 mbit
 	//minPacketInterval := time.Duration(100*(config.bitrate/5000)) * time.Microsecond
 	//log.Printf("Selected pacing of %v\n", minPacketInterval)
+	// User-space jitter buffer
+	const queueSize = 512
+	rtpQueue := make(chan []byte, queueSize)
 
-	for {
-		select {
-		case <-done:
-			log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
-			return
-		default:
-			// no more deadlines increases latency by 5-6ms
-			// Set a shorter read deadline for more responsive cancellation
-			//deadline := time.Now().Add(100 * time.Millisecond)
-			//conn.SetReadDeadline(deadline)
-			conn.SetReadDeadline(time.Time{})
-
+	// Goroutine: read from UDP and push into queue
+	go func() {
+		buf := make([]byte, 1500)
+		for {
 			n, _, err := conn.ReadFrom(buf)
 			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					// Check if we should exit on timeout
-					select {
-					case <-done:
-						log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
-						return
-					default:
-						continue
-					}
-				}
-
-				// Check for context cancellation on any error
 				select {
-				case <-done:
-					log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
+				case <-ctx.Done():
 					return
 				default:
-					// If connection was closed due to cancellation, exit
-					if video.isClosing {
-						log.Printf("Shutting down RTP ingest for %s (connection closed)\n", track.StreamID())
-						return
-					}
-					log.Printf("Read error: %v", err)
+					log.Printf("UDP read error: %v", err)
 					continue
 				}
 			}
-			// pace the packets out
-			//if nextSendTime.IsZero() {
-			//nextSendTime = time.Now()
-			//}
 
-			//if now := time.Now(); now.Before(nextSendTime) {
-			//log.Printf("sleeping")
-			//time.Sleep(nextSendTime.Sub(now))
-			//}
+			pktCopy := make([]byte, n)
+			copy(pktCopy, buf[:n])
 
-			_, writeErr := track.Write(buf[:n])
-			//			nextSendTime = nextSendTime.Add(minPacketInterval)
-
-			if writeErr != nil {
-				log.Printf("Failed to write RTP to track: %v", writeErr)
+			select {
+			case rtpQueue <- pktCopy:
+			default:
+				// Queue full: drop oldest packet to avoid blocking
+				<-rtpQueue
+				rtpQueue <- pktCopy
 			}
 		}
+	}()
+
+	// Forward loop: batch packets every 1?2ms
+	ticker := time.NewTicker(500 * time.Microsecond)
+	defer ticker.Stop()
+
+	var batch [][]byte
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
+			return
+		case pkt := <-rtpQueue:
+			batch = append(batch, pkt)
+		case <-ticker.C:
+			if len(batch) == 0 {
+				continue
+			}
+
+			for _, pkt := range batch {
+				if _, err := track.Write(pkt); err != nil {
+					log.Printf("Failed to write RTP to track: %v", err)
+				}
+			}
+			batch = batch[:0] // clear batch
+		}
 	}
+
 }
 
 func (video *RDPAudioVideo) Close() {
