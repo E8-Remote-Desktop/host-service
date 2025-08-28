@@ -65,8 +65,7 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 			fmt.Sprintf("! amf%senc rate-control=cbr bitrate=%d gop-size=%d usage=2 ", config.codec, config.bitrate, config.gopsize) +
 			"! queue max-size-buffers=10 max-size-time=0 max-size-bytes=0 leaky=downstream " +
 			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
-			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.mtu) +
-			"! rtpjitterbuffer latency=10 " +
+			fmt.Sprintf("! rtp%spay config-interval=1 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.mtu) +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 		log.Println(pipeline)
 	}
@@ -338,7 +337,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	}()
 
 	// Forward loop: batch packets every 1?2ms
-	ticker := time.NewTicker(500 * time.Microsecond)
+	ticker := time.NewTicker(3 * time.Millisecond)
 	defer ticker.Stop()
 
 	var batch [][]byte
