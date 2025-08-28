@@ -66,6 +66,7 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream " +
 			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
 			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.mtu) +
+			"! queue max-size-time=20000000 leaky=downstream " +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 		log.Println(pipeline)
 	}
