@@ -337,7 +337,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	}()
 
 	// Forward loop: batch packets every 1?2ms
-	ticker := time.NewTicker(3 * time.Millisecond)
+	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 
 	var batch [][]byte
