@@ -308,7 +308,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	burstSize := 50
 	limiter := rate.NewLimiter(targetRate, burstSize)
 	//expire
-	maxWait := 5 * time.Millisecond
+	maxWait := 2 * time.Millisecond
 	type packet struct {
 		data      []byte
 		timestamp time.Time
