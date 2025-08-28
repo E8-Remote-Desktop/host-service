@@ -304,11 +304,11 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	//minPacketInterval := time.Duration(1*(config.bitrate/5000)) * time.Microsecond
 	//log.Printf("Selected pacing of %v\n", minPacketInterval)
 	// third times a charm?
-	targetRate := rate.Limit(50000)
+	targetRate := rate.Limit(100000)
 	burstSize := 250
 	limiter := rate.NewLimiter(targetRate, burstSize)
 	//expire
-	maxWait := 5 * time.Millisecond
+	maxWait := 2 * time.Millisecond
 	type packet struct {
 		data      []byte
 		timestamp time.Time
