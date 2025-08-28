@@ -13,6 +13,7 @@ import (
 	"github.com/go-gst/go-gst/gst"
 	"github.com/pion/webrtc/v3"
 	"github.com/zieckey/goini"
+	"golang.org/x/time/rate"
 )
 
 type RDPAudioVideo struct {
@@ -297,70 +298,79 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	everything but for some reason without the UDP buffer being much bigger it
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
-	var nextSendTime time.Time
 	// optimize for around 1ms (1000 microSecond) latency
 	//minPacketInterval := time.Duration(1000/((config.bitrate)/((config.mtu*8)/1000))) * time.Microsecond
 	// set packet smoothing 1 microsecond for every 5 mbit
-	minPacketInterval := time.Duration(100*(config.bitrate/5000)) * time.Microsecond
-	log.Printf("Selected pacing of %v\n", minPacketInterval)
+	//minPacketInterval := time.Duration(1*(config.bitrate/5000)) * time.Microsecond
+	//log.Printf("Selected pacing of %v\n", minPacketInterval)
+	// third times a charm?
+	targetRate := rate.Limit(100000)
+	burstSize := 250
+	limiter := rate.NewLimiter(targetRate, burstSize)
+	//expire
+	maxWait := 2 * time.Millisecond
+	type packet struct {
+		data      []byte
+		timestamp time.Time
+	}
 
+	packetCh := make(chan packet, 5000) // small buffer
+
+	// Reader goroutine
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				n, _, err := conn.ReadFrom(buf)
+				if err != nil {
+					select {
+					case <-done:
+						return
+					default:
+						if !video.isClosing {
+							log.Printf("Read error: %v", err)
+						}
+						continue
+					}
+				}
+				// enqueue packet
+				dataCopy := make([]byte, n)
+				copy(dataCopy, buf[:n])
+				select {
+				case packetCh <- packet{data: dataCopy, timestamp: time.Now()}:
+				default:
+					// drop if channel full (backpressure)
+					log.Println("Dropping packet: channel full")
+				}
+			}
+		}
+	}()
+
+	// Sender loop
 	for {
 		select {
 		case <-done:
 			log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
 			return
-		default:
-			// no more deadlines increases latency by 5-6ms
-			// Set a shorter read deadline for more responsive cancellation
-			//deadline := time.Now().Add(100 * time.Millisecond)
-			//conn.SetReadDeadline(deadline)
-			conn.SetReadDeadline(time.Time{})
-
-			n, _, err := conn.ReadFrom(buf)
-			if err != nil {
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					// Check if we should exit on timeout
-					select {
-					case <-done:
-						log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
-						return
-					default:
-						continue
-					}
-				}
-
-				// Check for context cancellation on any error
-				select {
-				case <-done:
-					log.Printf("Shutting down RTP ingest for %s\n", track.StreamID())
-					return
-				default:
-					// If connection was closed due to cancellation, exit
-					if video.isClosing {
-						log.Printf("Shutting down RTP ingest for %s (connection closed)\n", track.StreamID())
-						return
-					}
-					log.Printf("Read error: %v", err)
-					continue
-				}
+		case pkt := <-packetCh:
+			// pacing
+			if err := limiter.Wait(ctx); err != nil {
+				log.Printf("Limiter wait error: %v", err)
+				return
 			}
-			// pace the packets out
-			if nextSendTime.IsZero() {
-				nextSendTime = time.Now()
+			// expiration check
+			if time.Since(pkt.timestamp) > maxWait {
+				log.Printf("Drop expired packet (%v old)", time.Since(pkt.timestamp))
+				continue
 			}
-
-			if now := time.Now(); now.Before(nextSendTime) {
-				log.Printf("sleeping")
-				time.Sleep(nextSendTime.Sub(now))
-			}
-
-			_, writeErr := track.Write(buf[:n])
-			nextSendTime = nextSendTime.Add(minPacketInterval)
-			if writeErr != nil {
-				log.Printf("Failed to write RTP to track: %v", writeErr)
+			if _, err := track.Write(pkt.data); err != nil {
+				log.Printf("Failed to write RTP to track: %v", err)
 			}
 		}
 	}
+
 }
 
 func (video *RDPAudioVideo) Close() {
