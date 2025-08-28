@@ -144,6 +144,9 @@ func (connector *RDPWebRTCConnect) Start() {
 						URLs: []string{"stun:stun.l.google.com:19302"},
 					},
 				},
+				ICETransportPolicy: webrtc.ICETransportPolicyAll,
+				BundlePolicy:       webrtc.BundlePolicyMaxBundle,
+				RTCPMuxPolicy:      webrtc.RTCPMuxPolicyRequire,
 			})
 
 			// Accept

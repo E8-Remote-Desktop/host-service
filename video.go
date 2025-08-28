@@ -63,9 +63,10 @@ func (video *RDPAudioVideo) buildGstVideoPipeline(config *StreamConfig) string {
 			"! d3d11convert " +
 			fmt.Sprintf("! video/x-raw(memory:D3D11Memory),framerate=%d/1,format=NV12 ", config.framerate) +
 			fmt.Sprintf("! amf%senc rate-control=cbr bitrate=%d gop-size=%d usage=2 ", config.codec, config.bitrate, config.gopsize) +
-			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream " +
+			"! queue max-size-buffers=10 max-size-time=0 max-size-bytes=0 leaky=downstream " +
 			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
 			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.mtu) +
+			"! rtpjitterbuffer latency=10 " +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 		log.Println(pipeline)
 	}
@@ -284,6 +285,7 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 		   var
 		*/
 		udpConn.SetReadBuffer(1024 * 1024 * 1.5)
+		udpConn.SetWriteBuffer(1024 * 1024 * 1.5)
 	}
 
 	// Goroutine to handle context cancellation
