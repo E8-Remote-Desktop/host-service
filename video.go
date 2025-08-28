@@ -297,12 +297,12 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 	everything but for some reason without the UDP buffer being much bigger it
 	starts dropping packets, zero clue why this doesn't happen on Linux */
 	buf := make([]byte, 1500) // 1.5 kib buffer
-	var nextSendTime time.Time
+	//var nextSendTime time.Time
 	// optimize for around 1ms (1000 microSecond) latency
 	//minPacketInterval := time.Duration(1000/((config.bitrate)/((config.mtu*8)/1000))) * time.Microsecond
 	// set packet smoothing 1 microsecond for every 5 mbit
-	minPacketInterval := time.Duration(100*(config.bitrate/5000)) * time.Microsecond
-	log.Printf("Selected pacing of %v\n", minPacketInterval)
+	//minPacketInterval := time.Duration(100*(config.bitrate/5000)) * time.Microsecond
+	//log.Printf("Selected pacing of %v\n", minPacketInterval)
 
 	for {
 		select {
@@ -345,17 +345,18 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 				}
 			}
 			// pace the packets out
-			if nextSendTime.IsZero() {
-				nextSendTime = time.Now()
-			}
+			//if nextSendTime.IsZero() {
+			//nextSendTime = time.Now()
+			//}
 
-			if now := time.Now(); now.Before(nextSendTime) {
-				log.Printf("sleeping")
-				time.Sleep(nextSendTime.Sub(now))
-			}
+			//if now := time.Now(); now.Before(nextSendTime) {
+			//log.Printf("sleeping")
+			//time.Sleep(nextSendTime.Sub(now))
+			//}
 
 			_, writeErr := track.Write(buf[:n])
-			nextSendTime = nextSendTime.Add(minPacketInterval)
+			//			nextSendTime = nextSendTime.Add(minPacketInterval)
+
 			if writeErr != nil {
 				log.Printf("Failed to write RTP to track: %v", writeErr)
 			}
