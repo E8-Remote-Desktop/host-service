@@ -158,11 +158,6 @@ func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
 	}
 }
 
-// GetInput returns the Windows-specific input handler.
-func GetInput() Input {
-	return &RDPWindowsInput{}
-}
-
 // RDPWindowsInput handles remote input events on Windows using robotgo.
 type RDPWindowsInput struct {
 	lastButtons byte
