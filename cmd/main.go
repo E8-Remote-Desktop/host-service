@@ -1,6 +1,6 @@
 package main
 
-import "github.com/rahulc07/rdp/host-service/pkg/rdp"
+import "github.com/e8-remote-desktop/host-service/pkg/rdp"
 
 var rdpServer rdp.WebRTCConnect = &rdp.RDPWebRTCConnect{}
 
