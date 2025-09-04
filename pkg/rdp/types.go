@@ -8,7 +8,7 @@ type Input interface {
 	Close()
 }
 
-type AudioVideo interface {
+type StreamConnector interface {
 	Init(*StreamConfig, Streamer)
 	AttachMediaChannel(*webrtc.PeerConnection)
 	Close()

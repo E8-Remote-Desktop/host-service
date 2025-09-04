@@ -11,7 +11,7 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-type RDPAudioVideo struct {
+type RDPStreamConnector struct {
 	cancelRTPTrackInjest context.CancelFunc
 	streamWaitGroup      sync.WaitGroup
 	streamsMutex         sync.Mutex
@@ -20,13 +20,13 @@ type RDPAudioVideo struct {
 	streamer             Streamer
 }
 
-func (video *RDPAudioVideo) Init(config *StreamConfig, streamer Streamer) {
+func (video *RDPStreamConnector) Init(config *StreamConfig, streamer Streamer) {
 	video.config = config
 	video.streamer = streamer
-
+	video.isClosing = false
 }
 
-func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnection) {
+func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerConnection) {
 	video.streamsMutex.Lock()
 	defer video.streamsMutex.Unlock()
 
@@ -35,10 +35,8 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 		video.Close()
 	}
 
-	video.isClosing = false
-
 	gst.Init(nil)
-	// start video
+	// start streams
 	video.streamer.Start(video.config)
 
 	// Create tracks
@@ -92,7 +90,7 @@ func (video *RDPAudioVideo) AttachMediaChannel(PeerConnection *webrtc.PeerConnec
 	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack, video.config)
 }
 
-func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP, config *StreamConfig) {
+func (video *RDPStreamConnector) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP, config *StreamConfig) {
 	defer video.streamWaitGroup.Done()
 
 	conn, err := net.ListenPacket("udp", listenAddr)
@@ -194,9 +192,14 @@ func (video *RDPAudioVideo) receiveRTPAndForward(ctx context.Context, listenAddr
 
 }
 
-func (video *RDPAudioVideo) Close() {
+func (video *RDPStreamConnector) Close() {
 	video.streamsMutex.Lock()
 	defer video.streamsMutex.Unlock()
+
+	if video.isClosing {
+		return
+	}
+	video.isClosing = true
 
 	if video.cancelRTPTrackInjest != nil {
 		log.Printf("Closing RTP Injest Loops\n")
@@ -225,13 +228,9 @@ func (video *RDPAudioVideo) Close() {
 		close(done)
 	}()
 
-	select {
-	case <-done:
-		log.Printf("All Video streams closed successfully\n")
-	case <-time.After(2 * time.Second):
-		log.Printf("Timeout waiting for Video streams to close\n")
+	if video.streamer != nil {
+		video.streamer.Cancel()
 	}
-
 	video.cancelRTPTrackInjest = nil
 	video.isClosing = false
 }
