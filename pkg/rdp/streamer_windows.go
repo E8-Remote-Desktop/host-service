@@ -13,10 +13,6 @@ import (
 	"github.com/go-gst/go-gst/gst"
 )
 
-func GetStreamer() Streamer {
-	return &WindowsStreamer{}
-}
-
 type WindowsStreamer struct {
 	mainLoop       *glib.MainLoop
 	mainLoopCancel context.CancelFunc
@@ -109,28 +105,27 @@ func (streamer *WindowsStreamer) StartStream(config *StreamConfig, pipelineFacto
 }
 
 func (streamer *WindowsStreamer) Cancel() {
-	if streamer.mainLoopCancel != nil {
-		for _, p := range streamer.pipelines {
-			if err := p.SetState(gst.StateNull); err != nil {
-				log.Printf("ERROR COULD NOT STOP PIPELINE FROM PLAYING STATE, %v!", err)
-			} // stop before unref
-		}
-		streamer.pipelines = nil
-		log.Printf("Closing GST Streams\n")
-		streamer.isClosing = true
-		streamer.mainLoopCancel()
-
-		for _, p := range streamer.pipelines {
-			// the go gc doesn't seem to want to unref this itself, which makes gst mad
-			// tell go that we'll handle this ourselves
-			// todo maybe use AddCleanup to tell Go how to handle this?
-			runtime.SetFinalizer(p, nil)
-			p.Unref()
-		}
-
-		streamer.mainLoopCancel = nil
-		streamer.isClosing = false
+	if streamer.pipelines == nil {
+		return
 	}
+	log.Printf("Closing GST Streams\n")
+	streamer.isClosing = true
+	streamer.mainLoopCancel()
+	streamer.mainLoopCancel = nil
+
+	for _, p := range streamer.pipelines {
+		// the go gc doesn't seem to want to unref this itself, which makes gst mad
+		// tell go that we'll handle this ourselves
+		// todo maybe use AddCleanup to tell Go how to handle this?
+		if err := p.SetState(gst.StateNull); err != nil {
+			log.Printf("ERROR COULD NOT STOP PIPELINE FROM PLAYING STATE, %v!", err)
+		}
+		// stop before unref
+		runtime.SetFinalizer(p, nil)
+		p.Unref()
+	}
+
+	streamer.isClosing = false
 }
 
 func (streamer *WindowsStreamer) Start(config *StreamConfig) error {
