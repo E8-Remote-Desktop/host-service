@@ -1,11 +1,14 @@
 package rdp
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
 	"runtime"
+	"strings"
 
+	"github.com/Microsoft/go-winio"
 	"github.com/go-gst/go-glib/glib"
 	"github.com/go-gst/go-gst/gst"
 )
@@ -125,7 +128,7 @@ func (streamer *WindowsStreamHelper) Cancel() {
 	streamer.isClosing = false
 }
 
-func (streamer *WindowsStreamHelper) StartStreaming(config *StreamConfig, userToken string) error {
+func (streamer *WindowsStreamHelper) StartStreaming(config *StreamConfig) error {
 	ctx, streamCancel := context.WithCancel(context.Background())
 
 	streamer.mainLoopCancel = streamCancel
@@ -156,4 +159,24 @@ func (streamer *WindowsStreamHelper) StartStreaming(config *StreamConfig, userTo
 	}()
 
 	return nil
+}
+
+func (streamer *WindowsStreamHelper) StartPipeClient() {
+	// since this is standalone reinject configurator
+	configurator := &WindowsConfigurator{}
+	pipePath := `\\.pipe\tovideo`
+	conn, err := winio.DialPipe(pipePath, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), "close") {
+			streamer.Cancel()
+			return
+		}
+		config, _ := configurator.GetConfig()
+		streamer.StartStreaming(config)
+	}
 }
