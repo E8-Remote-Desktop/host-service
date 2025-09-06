@@ -164,7 +164,7 @@ func (video *RDPStreamConnector) receiveRTPAndForward(ctx context.Context, liste
 	}()
 
 	// Forward loop: batch packets every 1?2ms
-	ticker := time.NewTicker(time.Duration(1000/config.framerate) * time.Millisecond)
+	ticker := time.NewTicker(time.Duration(1000/config.Framerate) * time.Millisecond)
 	defer ticker.Stop()
 
 	var batch [][]byte

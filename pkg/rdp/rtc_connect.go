@@ -46,9 +46,9 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 		return
 	}
 
-	apiURL := configOptions.apiURL
-	my_id := configOptions.hostname
-	token := configOptions.token
+	apiURL := configOptions.ApiURL
+	my_id := configOptions.Hostname
+	token := configOptions.Token
 
 	header := http.Header{}
 	header.Set("Cookie", fmt.Sprintf("user-session=%s", token))

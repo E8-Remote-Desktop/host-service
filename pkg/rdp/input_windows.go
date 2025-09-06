@@ -5,10 +5,7 @@ package rdp
 
 import (
 	"encoding/binary"
-	"encoding/json"
-	"fmt"
 	"log"
-	"unsafe"
 
 	"github.com/go-vgo/robotgo"
 	"github.com/pion/webrtc/v3"
@@ -111,61 +108,17 @@ const (
 	SC_APPS  = 0xE05D // Menu key (extended)
 )
 
-type KEYBDINPUT struct {
-	Vk        uint16
-	Scan      uint16
-	Flags     uint32
-	Time      uint32
-	ExtraInfo uintptr
-	_         [8]byte // fix padding
-}
-
-type INPUT struct {
-	Type uint32
-	_    [4]byte
-	Ki   KEYBDINPUT
-}
-
 type DatachannelMsg struct {
 	Type    string `json:"type"`
 	Content string `json:"content"`
 }
 
-func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
-	var flags uint32 = KEYEVENTF_SCANCODE
-	if !keyDown {
-		flags |= KEYEVENTF_KEYUP
-	}
-	if sc&0xFF00 == 0xE000 {
-		flags |= 0x0001 // KEYEVENTF_EXTENDEDKEY
-		sc &= 0xFF      // Only pass the low byte (e.g. 0x4D instead of 0xE04D)
-	}
-	input := INPUT{
-		Type: INPUT_KEYBOARD,
-		Ki: KEYBDINPUT{
-			Vk:        0,
-			Scan:      sc,
-			Flags:     flags,
-			Time:      0,
-			ExtraInfo: 0,
-		},
-	}
-
-	if err := user32util.SendInput(1, unsafe.Pointer(&input), unsafe.Sizeof(input), dll); err != nil {
-		log.Printf("Failed to send keyboard input err: %v", err)
-		log.Printf("sizeof(KEYBDINPUT): %d", unsafe.Sizeof(KEYBDINPUT{})) // should be 24 on 64-bit
-		log.Printf("sizeof(INPUT): %d", unsafe.Sizeof(INPUT{}))
-	}
-}
-
-// RDPWindowsInput handles remote input events on Windows using robotgo.
 type RDPWindowsInput struct {
 	lastButtons byte
 	pressedKeys map[uint16]bool
 }
 
 // Init initializes the input handler. For Windows, this is a no-op
-// as robotgo doesn't require explicit device creation like uinput.
 func (input *RDPWindowsInput) Init() error {
 	input.pressedKeys = make(map[uint16]bool)
 	log.Println("Windows Input handler initialized")
@@ -249,13 +202,13 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 			}, dll)
 
 			// Send current cursor position (sync)
-			currentX, currentY := robotgo.Location()
-			syncMsgStruct := &DatachannelMsg{Type: "mouse-pos-sync", Content: fmt.Sprintf("%d,%d", currentX, currentY)}
-			syncMsgJSON, err := json.Marshal(syncMsgStruct)
-			if err != nil {
-				log.Fatal("Could not marshal mouse sync packet %v", err.Error())
-			}
-			dc.SendText(string(syncMsgJSON))
+			//currentX, currentY := robotgo.Location()
+			//syncMsgStruct := &DatachannelMsg{Type: "mouse-pos-sync", Content: fmt.Sprintf("%d,%d", currentX, currentY)}
+			//syncMsgJSON, err := json.Marshal(syncMsgStruct)
+			//if err != nil {
+			//log.Fatal("Could not marshal mouse sync packet %v", err.Error())
+			//}
+			//dc.SendText(string(syncMsgJSON))
 
 		case 3: // Mouse Button Event
 			if len(data) < 3 {

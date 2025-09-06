@@ -1,4 +1,4 @@
-package rdp
+package helpers
 
 import (
 	"bufio"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/go-gst/go-glib/glib"
 	"github.com/go-gst/go-gst/gst"
 )
@@ -20,42 +21,42 @@ type WindowsStreamHelper struct {
 	isClosing      bool
 }
 
-func (streamer *WindowsStreamHelper) buildGstVideoPipeline(config *StreamConfig) string {
+func (streamer *WindowsStreamHelper) buildGstVideoPipeline(config *rdp.StreamConfig) string {
 	// TODO OS Based Pipeline Switching
-	rtpCodec := config.codec
-	if config.codec == "hevc" {
+	rtpCodec := config.Codec
+	if config.Codec == "hevc" {
 		rtpCodec = "h265"
 	}
 	pipeline := ""
-	switch config.encoder {
+	switch config.Encoder {
 	case "intel":
-		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.screen) +
+		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.Screen) +
 			"! d3d11convert" +
-			fmt.Sprintf("! video/x-raw(memory:D3D11Memory),framerate=%d/1,format=NV12 ", config.framerate) +
-			fmt.Sprintf("! qsv%senc rate-control=cbr bitrate=%d gop-size=%d low-latency=true target-usage=7 rc-lookahead=0 ", config.codec, config.bitrate, config.gopsize) +
+			fmt.Sprintf("! video/x-raw(memory:D3D11Memory),framerate=%d/1,format=NV12 ", config.Framerate) +
+			fmt.Sprintf("! qsv%senc rate-control=cbr bitrate=%d gop-size=%d low-latency=true target-usage=7 rc-lookahead=0 ", config.Codec, config.Bitrate, config.Gopsize) +
 			"! queue max-size-buffers=2 max-size-time=0 max-size-bytes=0 leaky=downstream " +
-			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
-			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d", rtpCodec, config.mtu) +
+			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.Codec) +
+			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d", rtpCodec, config.MTU) +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 
 		log.Println(pipeline)
 
 	case "amd":
 		// usage=2 because in newer AMD drivers usage=1 for ultra low latency doesn't seem to function
-		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.screen) +
+		pipeline = fmt.Sprintf("d3d11screencapturesrc monitor-index=%d show-cursor=true ", config.Screen) +
 			"! d3d11convert " +
-			fmt.Sprintf("! video/x-raw(memory:D3D11Memory),framerate=%d/1,format=NV12 ", config.framerate) +
-			fmt.Sprintf("! amf%senc rate-control=cbr bitrate=%d gop-size=%d usage=2 ", config.codec, config.bitrate, config.gopsize) +
+			fmt.Sprintf("! video/x-raw(memory:D3D11Memory),framerate=%d/1,format=NV12 ", config.Framerate) +
+			fmt.Sprintf("! amf%senc rate-control=cbr bitrate=%d gop-size=%d usage=2 ", config.Codec, config.Bitrate, config.Gopsize) +
 			"! queue max-size-buffers=1 max-size-time=0 max-size-bytes=0 leaky=downstream " +
-			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.codec) +
-			fmt.Sprintf("! rtp%spay config-interval=1 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.mtu) +
+			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.Codec) +
+			fmt.Sprintf("! rtp%spay config-interval=1 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.MTU) +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 		log.Println(pipeline)
 	}
 	return pipeline
 }
 
-func (streamer *WindowsStreamHelper) buildGstAudioPipeline(config *StreamConfig) string {
+func (streamer *WindowsStreamHelper) buildGstAudioPipeline(config *rdp.StreamConfig) string {
 	// TODO OS Based Selection
 	return "wasapisrc loopback=true low-latency=true " +
 		"! audioresample " +
@@ -65,7 +66,7 @@ func (streamer *WindowsStreamHelper) buildGstAudioPipeline(config *StreamConfig)
 		"! udpsink host=127.0.0.1 port=50045 sync=false async=false "
 }
 
-func (streamer *WindowsStreamHelper) StartStream(config *StreamConfig, pipelineFactory func(*StreamConfig) string) error {
+func (streamer *WindowsStreamHelper) StartStream(config *rdp.StreamConfig, pipelineFactory func(*rdp.StreamConfig) string) error {
 
 	pipelineString := pipelineFactory(config)
 
@@ -128,7 +129,7 @@ func (streamer *WindowsStreamHelper) Cancel() {
 	streamer.isClosing = false
 }
 
-func (streamer *WindowsStreamHelper) StartStreaming(config *StreamConfig) error {
+func (streamer *WindowsStreamHelper) StartStreaming(config *rdp.StreamConfig) error {
 	ctx, streamCancel := context.WithCancel(context.Background())
 
 	streamer.mainLoopCancel = streamCancel
@@ -163,7 +164,7 @@ func (streamer *WindowsStreamHelper) StartStreaming(config *StreamConfig) error 
 
 func (streamer *WindowsStreamHelper) StartPipeClient() {
 	// since this is standalone reinject configurator
-	configurator := &WindowsConfigurator{}
+	configurator := &rdp.WindowsConfigurator{}
 	pipePath := `\\.pipe\tovideo`
 	conn, err := winio.DialPipe(pipePath, nil)
 	if err != nil {

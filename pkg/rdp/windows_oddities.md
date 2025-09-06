@@ -50,7 +50,16 @@ System Service (UAC/WinLogon) ("service")
    b. Determine if it is UAC/WinLogon or Regular 'Default' Session (here we assume it's Secure/other)
    c. Get Process Handle (GetCurrentProcess()) (returns processHandle)
    d. Get Process Token for Duplication (OpenProcessToken(processHandle, TOKEN_DUPLICATE | TOKEN_QUERY, &output_token)) (returns boolean of success or not, the token goes into output_token)
-   e. Enable the privilleges AdjustTokenPrivileges(TokenHandle: output_token, DisableAllPrivileges: false, )
+   e. Lookup luid of the SeTcbPrivllege and save to type
+      ```LUID luidLUID luid; LookupPrivilegeValue(NULL, TEXT("SeTcbPrivilege"), &luid);  
+      ```
+   e. Enable the privilleges 
+   ```
+   TOKEN_PRIVILEGES tp;
+   tp.PrivilegeCount = 1;
+   tp.Privileges[0].Luid = luid;
+   tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+   AdjustTokenPrivileges(TokenHandle: output_token, DisableAllPrivileges: false, NewState: &tp, BufferLength: sizeof(TOKEN_PRIVILEGES), PreviousStateOutput: NULL, ReturnLengthOutput: NULL)
 4. Streamer starts named pipe server in go func with channel, waits for client to connect
 
 System Service (Regular User) ("service")

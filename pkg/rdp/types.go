@@ -20,17 +20,16 @@ type WebRTCConnect interface {
 }
 
 type StreamConfig struct {
-	apiURL    string
-	hostname  string
-	token     string
-	os        string
-	codec     string //h264 or hevc
-	encoder   string
-	bitrate   int
-	gopsize   int
-	screen    int
-	framerate int
-	mtu       int
+	ApiURL    string
+	Hostname  string
+	Token     string
+	Codec     string //h264 or hevc
+	Encoder   string
+	Bitrate   int
+	Gopsize   int
+	Screen    int
+	Framerate int
+	MTU       int
 }
 
 type Streamer interface {
