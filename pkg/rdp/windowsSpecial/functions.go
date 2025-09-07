@@ -9,9 +9,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+type DesktopRunner struct {
+	procHandles []windows.Handle
+}
+
 // enablePrivileges enables the required SeTcbPrivilege and SeAssignPrimaryTokenPrivilege
 // for the current process. This is mandatory for the token manipulation to work.
-func enablePrivileges() error {
+func (runner *DesktopRunner) enablePrivileges() error {
 	var hToken windows.Token
 	// Get the current process token.
 	processHandle := windows.CurrentProcess()
@@ -66,65 +70,58 @@ func enablePrivileges() error {
 	return nil
 }
 
-func main() {
+func (runner *DesktopRunner) RunProcesses(processes []string) error {
+	if runner.procHandles != nil {
+		return fmt.Errorf("processes were already started, please tear down first")
+	}
 	// This executable must be running as SYSTEM for this code to work.
-	if err := enablePrivileges(); err != nil {
-		log.Fatalf("Failed to enable necessary privileges: %v", err)
+	if err := runner.enablePrivileges(); err != nil {
+		return fmt.Errorf("failed to enable necessary privileges: %v", err)
 	}
-
-	// The path to the helper application we want to launch.
-	cmd, err := syscall.UTF16FromString("C:\\Windows\\System32\\notepad.exe")
-	if err != nil {
-		log.Fatalf("UTF16FromString failed: %v", err)
-	}
-
-	// --- The logic inside your event handler would start here ---
 
 	// 1. Get the active console session ID.
 	sessionID := windows.WTSGetActiveConsoleSessionId()
 	if sessionID == 0xFFFFFFFF {
 		log.Println("No active console session found.")
-		return
+		return fmt.Errorf("could not find desktop")
 	}
 
-	// 2. Get the name of the active desktop.
+	// Get the active desktop.
 	var desktopName string
 	// the api doesn't exist in the windows package or syscall, thank you microsoft for being utterly useless
 	hWinSta, err := openWindowStation(windows.StringToUTF16Ptr("WinSta0"), false, WINSTA_READATTRIBUTES)
 	//hWinSta, err := windows.OpenWindowStation("WinSta0", false, windows.WINSTA_READATTRIBUTES)
+	if err != nil {
+		return fmt.Errorf("could not find window station %v", err)
+	}
+
+	// todo make helper function to make sure this doesn't blow up
+	defer procCloseWindowStation.Call(uintptr(hWinSta))
+
+	// Temporarily set our process's window station to the interactive one.
+	setProcessWindowStation(hWinSta)
+	hDesktop, err := openInputDesktop(0, false, DESKTOP_READOBJECTS)
 	if err == nil {
-		// todo make helper function to make sure this doesn't blow up
-		defer procCloseWindowStation.Call(uintptr(hWinSta))
+		// again make helper function to make sure this doesn't blow up
+		defer procCloseDesktop.Call(uintptr(hDesktop))
 
-		// Temporarily set our process's window station to the interactive one.
-		setProcessWindowStation(hWinSta)
-		hDesktop, err := openInputDesktop(0, false, DESKTOP_READOBJECTS)
-		if err == nil {
-			// again make helper function to make sure this doesn't blow up
-			defer procCloseDesktop.Call(uintptr(hDesktop))
-
-			// Get the desktop's name.
-			nameBuffer := make([]uint16, 256)
-			desktopName, err = getUserObjectInformation(hDesktop, UOI_NAME)
-			if err == nil {
-				desktopName = windows.UTF16ToString(nameBuffer)
-			}
+		// Get the desktop's name.
+		desktopName, err = getUserObjectInformation(hDesktop, UOI_NAME)
+		if err != nil {
+			return fmt.Errorf("could not get desktop name %v", err)
 		}
 	}
 
 	if desktopName == "" {
-		log.Fatalf("Failed to get active desktop name. Last error: %v", windows.GetLastError())
+		return fmt.Errorf("failed to get active desktop name. Last error: %v", windows.GetLastError())
 	}
 
 	log.Printf("Detected Active Desktop: %s", desktopName)
 
-	var pi windows.ProcessInformation
-	si := &windows.StartupInfo{
-		Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
-	}
-
-	// 3. The Decision: Choose the right path based on the desktop name.
-	if desktopName != "Default" {
+	// get token
+	var token windows.Token
+	useMaster := (desktopName != "Default")
+	if useMaster {
 		// --- SECURE MODE ---
 		log.Println("Secure Mode detected. Launching with Master Key.")
 
@@ -133,33 +130,28 @@ func main() {
 		processHandle := windows.CurrentProcess()
 		err := windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
 		if err != nil {
-			log.Fatalf("OpenProcessToken (SYSTEM) failed: %v", err)
+			return fmt.Errorf("OpenProcessToken (SYSTEM) failed: %v", err)
 		}
 		defer hSystemToken.Close()
 
 		// Duplicate it to create a new primary token.
-		var hMasterToken windows.Token
-		err = windows.DuplicateTokenEx(hSystemToken, windows.TOKEN_ALL_ACCESS, nil, windows.SecurityIdentification, windows.TokenPrimary, &hMasterToken)
+		err = windows.DuplicateTokenEx(
+			hSystemToken,
+			windows.TOKEN_ALL_ACCESS,
+			nil,
+			windows.SecurityIdentification,
+			windows.TokenPrimary,
+			&token,
+		)
 		if err != nil {
-			log.Fatalf("DuplicateTokenEx failed: %v", err)
+			return fmt.Errorf("DuplicateTokenEx failed: %v", err)
 		}
-		defer hMasterToken.Close()
+		defer token.Close()
 
 		// Re-parent the new token to the active user's session.
-		err = windows.SetTokenInformation(hMasterToken, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
+		err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
 		if err != nil {
-			log.Fatalf("SetTokenInformation failed: %v", err)
-		}
-
-		// Set the target desktop in the startup info.
-		si.Desktop, err = syscall.UTF16PtrFromString(desktopName)
-		if err != nil {
-			log.Fatalf("UTF16PtrFromString for Desktop failed: %v", err)
-		}
-
-		err = windows.CreateProcessAsUser(hMasterToken, nil, &cmd[0], nil, nil, false, 0, nil, nil, si, &pi)
-		if err != nil {
-			log.Fatalf("CreateProcessAsUser (Secure) failed: %v", err)
+			return fmt.Errorf("SetTokenInformation failed: %v", err)
 		}
 
 	} else {
@@ -167,29 +159,65 @@ func main() {
 		log.Println("Normal Mode detected. Launching with User Token.")
 
 		// Get the token of the user in the active session.
-		var hUserToken windows.Token
-		err := windows.WTSQueryUserToken(sessionID, &hUserToken)
+		err := windows.WTSQueryUserToken(sessionID, &token)
 		if err != nil {
-			log.Fatalf("WTSQueryUserToken failed: %v", err)
+			return fmt.Errorf("WTSQueryUserToken failed: %v", err)
 		}
-		defer hUserToken.Close()
-
-		// Explicitly set the desktop for clarity.
-		si.Desktop, err = syscall.UTF16PtrFromString("winsta0\\default")
-		if err != nil {
-			log.Fatalf("UTF16PtrFromString for Desktop failed: %v", err)
-		}
-
-		err = windows.CreateProcessAsUser(hUserToken, nil, &cmd[0], nil, nil, false, 0, nil, nil, si, &pi)
-		if err != nil {
-			log.Fatalf("CreateProcessAsUser (Normal) failed: %v", err)
-		}
+		defer token.Close()
 	}
 
-	if pi.Process != 0 {
-		log.Printf("Process launched successfully with PID: %d", pi.ProcessId)
-		// Clean up the process and thread handles from PROCESS_INFORMATION.
-		defer windows.CloseHandle(pi.Process)
-		defer windows.CloseHandle(pi.Thread)
+	// start processes
+	for _, proc := range processes {
+		cmdLine, err := syscall.UTF16FromString(proc)
+		if err != nil {
+			log.Printf("Skipping invalid command %q: %v", proc, err)
+			continue
+		}
+
+		si := &windows.StartupInfo{
+			Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
+		}
+		si.Desktop, _ = syscall.UTF16PtrFromString("winsta0\\default")
+		if useMaster {
+			si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
+		}
+
+		var pi windows.ProcessInformation
+		err = windows.CreateProcessAsUser(
+			token,
+			nil,
+			&cmdLine[0],
+			nil,
+			nil,
+			false,
+			0,
+			nil,
+			nil,
+			si,
+			&pi,
+		)
+		if err != nil {
+			log.Printf("CreateProcessAsUser failed for %q: %v", proc, err)
+			continue
+		}
+
+		log.Printf("Launched %q with PID %d", proc, pi.ProcessId)
+		runner.procHandles = append(runner.procHandles, pi.Process)
+
+		// Clean up handles
+		windows.CloseHandle(pi.Thread)
 	}
+
+	return nil
+}
+
+func (runner *DesktopRunner) StopProcesses() {
+	for _, h := range runner.procHandles {
+		err := windows.TerminateProcess(h, 1) // exit code 1
+		if err != nil {
+			log.Printf("Could not close process, assuming all is good %v", err)
+		}
+		windows.CloseHandle(h) // cleanup after stopping
+	}
+	runner.procHandles = nil
 }
