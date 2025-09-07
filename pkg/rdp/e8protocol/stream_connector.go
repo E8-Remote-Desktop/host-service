@@ -1,4 +1,4 @@
-package rdp
+package e8protocol
 
 import (
 	"context"
@@ -17,10 +17,10 @@ type RDPStreamConnector struct {
 	streamsMutex         sync.Mutex
 	isClosing            bool
 	config               *StreamConfig
-	streamer             Streamer
+	streamer             MediaStreamer
 }
 
-func (video *RDPStreamConnector) Init(config *StreamConfig, streamer Streamer) {
+func (video *RDPStreamConnector) Init(config *StreamConfig, streamer MediaStreamer) {
 	video.config = config
 	video.streamer = streamer
 	video.isClosing = false

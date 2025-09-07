@@ -12,7 +12,7 @@ import (
 type WindowsInputHelper struct {
 	lastButtons byte
 	pressedKeys map[uint16]bool
-	dll user32util.User32DLL
+	dll         *user32util.User32DLL
 }
 
 const (
@@ -124,13 +124,9 @@ const (
 )
 
 func (input *WindowsInputHelper) Close() {
-	dll, err := user32util.LoadUser32DLL()
-	if err != nil {
-		log.Fatal("Could not initalize windows input layer")
-	}
 	for key, value := range input.pressedKeys {
 		if value {
-			SendKeyboardInput(dll, key, false)
+			SendKeyboardInput(input.dll, key, false)
 		}
 	}
 	input.pressedKeys = make(map[uint16]bool)
@@ -163,11 +159,15 @@ func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
 	}
 }
 
-func (input *WindowsInputHelper) Init(){
-	input.dll  err := user32util.LoadUser32DLL()
+func (input *WindowsInputHelper) Init() {
+	// TODO find better way to log this
+	var err error
+	input.dll, err = user32util.LoadUser32DLL()
+	if err != nil {
+		log.Printf("Could not initalize input")
+	}
 	input.pressedKeys = make(map[uint16]bool)
 	log.Println("Windows Input handler initialized")
-	return nil
 }
 
 func (input *WindowsInputHelper) dataProcessor(data []byte) {
@@ -192,7 +192,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 		}
 
 		// Send main key event
-		SendKeyboardInput(dll, sc, keyDown)
+		SendKeyboardInput(input.dll, sc, keyDown)
 		input.pressedKeys[sc] = keyDown
 
 	case 2: // Mouse Move
@@ -209,7 +209,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 			DwFlags: user32util.MouseEventFMove,
 			Dx:      int32(dx),
 			Dy:      int32(dy),
-		}, dll)
+		}, input.dll)
 
 		// Send current cursor position (sync)
 		//currentX, currentY := robotgo.Location()

@@ -9,7 +9,7 @@ type Input interface {
 }
 
 type StreamConnector interface {
-	Init(*StreamConfig, Streamer)
+	Init(*StreamConfig, MediaStreamer)
 	AttachMediaChannel(*webrtc.PeerConnection)
 	Close()
 }
@@ -32,11 +32,16 @@ type StreamConfig struct {
 	MTU       int
 }
 
-type Streamer interface {
+type MediaStreamer interface {
 	Start(*StreamConfig) error
 	Cancel()
 }
 
 type Configurator interface {
 	GetConfig() (*StreamConfig, error)
+}
+
+// mainly used for authentication and os abstractions, should be it's own standalone thing
+type OSHelper interface {
+	Init() error
 }

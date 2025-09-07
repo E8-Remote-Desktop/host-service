@@ -1,4 +1,4 @@
-package rdp
+package e8protocl
 
 import (
 	"crypto/tls"
@@ -33,7 +33,7 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 	// DI
 	var captureStream StreamConnector = &RDPStreamConnector{}
 	var input Input = GetInput()
-	var streamer Streamer = GetStreamer()
+	var streamer MediaStreamer = GetStreamer()
 	var config Configurator = GetConfigurator()
 	// init stuff
 	configOptions, err := config.GetConfig()

@@ -1,24 +1,25 @@
-package rdp
+package windowsspecial
 
 import (
 	"fmt"
 	"log"
 
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/zieckey/goini"
 )
 
 type WindowsConfigurator struct{}
 
-func (configurator *WindowsConfigurator) GetConfig() (*StreamConfig, error) {
+func (configurator *WindowsConfigurator) GetConfig() (*rdp.StreamConfig, error) {
 	// TODO OS Selection
 	ini := goini.New()
 	err := ini.ParseFile("C:\\ProgramData\\e8rd\\config.ini")
 	if err != nil {
 		log.Printf("Config Parse Error")
-		return &StreamConfig{}, err
+		return &rdp.StreamConfig{}, err
 	}
 	// todo error checking
-	config := &StreamConfig{}
+	config := &rdp.StreamConfig{}
 	ok := false
 	//config.os, ok = ini.SectionGet("OS", "os")
 	//if !ok {
