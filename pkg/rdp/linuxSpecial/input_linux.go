@@ -11,10 +11,6 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-func GetInput() Input {
-	return &RDPLinuxInput{}
-}
-
 type RDPLinuxInput struct {
 	keyboard    uinput.Keyboard
 	mouse       uinput.Mouse

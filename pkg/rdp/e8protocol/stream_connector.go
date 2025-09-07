@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/go-gst/go-gst/gst"
 	"github.com/pion/webrtc/v3"
 )
@@ -16,11 +17,11 @@ type RDPStreamConnector struct {
 	streamWaitGroup      sync.WaitGroup
 	streamsMutex         sync.Mutex
 	isClosing            bool
-	config               *StreamConfig
-	streamer             MediaStreamer
+	config               *rdp.StreamConfig
+	streamer             rdp.MediaStreamer
 }
 
-func (video *RDPStreamConnector) Init(config *StreamConfig, streamer MediaStreamer) {
+func (video *RDPStreamConnector) Init(config *rdp.StreamConfig, streamer rdp.MediaStreamer) {
 	video.config = config
 	video.streamer = streamer
 	video.isClosing = false
@@ -90,7 +91,12 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack, video.config)
 }
 
-func (video *RDPStreamConnector) receiveRTPAndForward(ctx context.Context, listenAddr string, track *webrtc.TrackLocalStaticRTP, config *StreamConfig) {
+func (video *RDPStreamConnector) receiveRTPAndForward(
+	ctx context.Context,
+	listenAddr string,
+	track *webrtc.TrackLocalStaticRTP,
+	config *rdp.StreamConfig,
+) {
 	defer video.streamWaitGroup.Done()
 
 	conn, err := net.ListenPacket("udp", listenAddr)

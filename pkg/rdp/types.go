@@ -2,19 +2,19 @@ package rdp
 
 import "github.com/pion/webrtc/v3"
 
-type Input interface {
-	Init() error
+type RTCInputConnector interface {
+	Init(InputProcessor) error
 	AcceptDataChannel(*webrtc.PeerConnection)
 	Close()
 }
 
-type StreamConnector interface {
+type RTCStreamConnector interface {
 	Init(*StreamConfig, MediaStreamer)
 	AttachMediaChannel(*webrtc.PeerConnection)
 	Close()
 }
 
-type WebRTCConnect interface {
+type RTCInitalizer interface {
 	Start()
 	Stop()
 }
@@ -39,6 +39,14 @@ type MediaStreamer interface {
 
 type Configurator interface {
 	GetConfig() (*StreamConfig, error)
+}
+
+type InputProcessor interface {
+	// all of these should follow the protocol
+	Send([]byte)
+	Close() error
+	//GetCursorPosition() ([]byte, error)
+	//GetCursorVisibility() ([]byte, error)
 }
 
 // mainly used for authentication and os abstractions, should be it's own standalone thing

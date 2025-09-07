@@ -6,29 +6,28 @@ package e8protocol
 import (
 	"log"
 
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/pion/webrtc/v3"
 )
 
-// keyMap translates linux input codes  to windows scancodes
-// linux ftw
-
-type RDPWindowsInput struct {
+type RDPInputConnector struct {
+	inputProcessor rdp.InputProcessor
 }
 
-// Init initializes the input handler. For Windows, this is a no-op
-func (input *RDPWindowsInput) Init() error {
+func (input *RDPInputConnector) Init(ip rdp.InputProcessor) error {
+	input.inputProcessor = ip
 	return nil
 }
 
-func (input *RDPWindowsInput) Close() {}
+func (input *RDPInputConnector) Close() {}
 
 // AcceptDataChannel sets up the handler for incoming WebRTC data channels.
-func (input *RDPWindowsInput) AcceptDataChannel(pc *webrtc.PeerConnection) {
+func (input *RDPInputConnector) AcceptDataChannel(pc *webrtc.PeerConnection) {
 	pc.OnDataChannel(input.processor)
 }
 
 // processor handles messages from the WebRTC data channel.
-func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
+func (input *RDPInputConnector) processor(dc *webrtc.DataChannel) {
 	log.Printf("Data Channel '%s' request received\n", dc.Label())
 
 	dc.OnOpen(func() {
@@ -40,6 +39,7 @@ func (input *RDPWindowsInput) processor(dc *webrtc.DataChannel) {
 		if len(data) == 0 {
 			return
 		}
+		input.inputProcessor.Send(data)
 
 	})
 }

@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package windowsspecial
 
 import (
@@ -210,6 +213,8 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 
 	return nil
 }
+
+func (runner *DesktopRunner) RunProcess() {}
 
 func (runner *DesktopRunner) StopProcesses() {
 	for _, h := range runner.procHandles {

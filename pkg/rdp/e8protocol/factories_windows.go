@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package e8protocol
 
 import (
@@ -6,18 +9,18 @@ import (
 )
 
 // GetInput returns the Windows-specific input handler.
-func GetInput() rdp.Input {
-	return &windowsspecial.RDPWindowsInput{}
+func GetInputProcessor() rdp.InputProcessor {
+	return &windowsspecial.WindowsInputProcessor{}
 }
 
 func GetStreamer() rdp.MediaStreamer {
-	return &rdp.WindowsMediaStreamer{}
+	return &windowsspecial.WindowsMediaStreamer{}
 }
 
 func GetConfigurator() rdp.Configurator {
-	return &rdp.WindowsConfigurator{}
+	return &windowsspecial.WindowsConfigurator{}
 }
 
 func GetOSHelper() rdp.OSHelper {
-	return &rdp.OSHelper
+	return &windowsspecial.OSHelper{}
 }

@@ -1,4 +1,4 @@
-package e8protocl
+package e8protocol
 
 import (
 	"crypto/tls"
@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 
+	rdp "github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
 )
@@ -31,10 +32,12 @@ type RDPWebRTCConnect struct {
 // Also handles the socket connection
 func (rtcInitalizer *RDPWebRTCConnect) Start() {
 	// DI
-	var captureStream StreamConnector = &RDPStreamConnector{}
-	var input Input = GetInput()
-	var streamer MediaStreamer = GetStreamer()
+	var captureStream rdp.RTCStreamConnector = &RDPStreamConnector{}
+	var input rdp.RTCInputConnector = &RDPInputConnector{}
+	// OS Specific Factories
+	var streamer rdp.MediaStreamer = GetStreamer()
 	var config Configurator = GetConfigurator()
+	var osHelper rdp.OSHelper = GetOSHelper()
 	// init stuff
 	configOptions, err := config.GetConfig()
 	captureStream.Init(configOptions, streamer)
