@@ -27,27 +27,31 @@ type SocketMessage struct {
 type RDPWebRTCConnect struct {
 	conn           *websocket.Conn
 	peerConnection *webrtc.PeerConnection
+	osHelper       rdp.OSHelper
+	streamer       rdp.MediaStreamer
+	captureStream  rdp.RTCStreamConnector
+	input          rdp.RTCInputConnector
 }
 
 // Also handles the socket connection
 func (rtcInitalizer *RDPWebRTCConnect) Start() {
 	// DI
-	var captureStream rdp.RTCStreamConnector = &RDPStreamConnector{}
-	var input rdp.RTCInputConnector = &RDPInputConnector{}
+	rtcInitalizer.captureStream = &RDPStreamConnector{}
+	rtcInitalizer.input = &RDPInputConnector{}
 	// OS Specific Factories
-	var streamer rdp.MediaStreamer = GetStreamer()
-	var config Configurator = GetConfigurator()
-	var osHelper rdp.OSHelper = GetOSHelper()
+	rtcInitalizer.streamer = GetStreamer()
+	var config rdp.Configurator = GetConfigurator()
+	rtcInitalizer.osHelper = GetOSHelper()
+	inputProcessor := GetInputProcessor()
+
 	// init stuff
 	configOptions, err := config.GetConfig()
-	captureStream.Init(configOptions, streamer)
+	rtcInitalizer.captureStream.Init(configOptions, rtcInitalizer.streamer)
+	if err := rtcInitalizer.input.Init(inputProcessor); err != nil {
+		log.Fatalf("Could not init input %v\n", err)
+	}
 
 	// Create the peer connection
-
-	if err != nil {
-		log.Printf("Could not find API Url")
-		return
-	}
 
 	apiURL := configOptions.ApiURL
 	my_id := configOptions.Hostname
@@ -109,8 +113,8 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 			log.Println("Received SDP offer")
 
 			// close will only actually do anything if anything can be closed
-			captureStream.Close()
-			input.Close()
+			rtcInitalizer.captureStream.Close()
+			rtcInitalizer.input.Close()
 
 			if rtcInitalizer.peerConnection != nil {
 				log.Println("Closing old PeerConnection before accepting new offer")
@@ -136,13 +140,10 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 			}
 
 			// Data channel accept (client opens the input data channel on the browser side)
-			if err := input.Init(); err != nil {
-				log.Fatalf("Could not init input %v\n", err)
-			}
-			input.AcceptDataChannel(rtcInitalizer.peerConnection)
+			rtcInitalizer.input.AcceptDataChannel(rtcInitalizer.peerConnection)
 
 			// Attach media channel
-			captureStream.AttachMediaChannel(rtcInitalizer.peerConnection)
+			rtcInitalizer.captureStream.AttachMediaChannel(rtcInitalizer.peerConnection)
 
 			// Set remote offer
 			offer := webrtc.SessionDescription{
@@ -248,6 +249,12 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 func (rtcInitalizer *RDPWebRTCConnect) Stop() {
 	log.Println("Force stop signal detected, foricably closing")
 	var err error
+
+	// shutdown os specific things
+	rtcInitalizer.captureStream.Close()
+	rtcInitalizer.input.Close()
+	rtcInitalizer.osHelper.Close()
+
 	if rtcInitalizer.conn != nil {
 		err = rtcInitalizer.conn.Close()
 	}
