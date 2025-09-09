@@ -6,6 +6,7 @@ package windowsspecial
 import (
 	"fmt"
 	"log"
+	"strings"
 	"syscall"
 	"unsafe"
 
@@ -92,7 +93,7 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 	// Get the active desktop.
 	var desktopName string
 	// the api doesn't exist in the windows package or syscall, thank you microsoft for being utterly useless
-	hWinSta, err := openWindowStation(windows.StringToUTF16Ptr("WinSta0"), false, WINSTA_READATTRIBUTES)
+	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES)
 	//hWinSta, err := windows.OpenWindowStation("WinSta0", false, windows.WINSTA_READATTRIBUTES)
 	if err != nil {
 		return fmt.Errorf("could not find window station %v", err)
@@ -123,7 +124,7 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 
 	// get token
 	var token windows.Token
-	useMaster := (desktopName != "Default")
+	useMaster := (strings.Contains(desktopName, "Default"))
 	if useMaster {
 		// --- SECURE MODE ---
 		log.Println("Secure Mode detected. Launching with Master Key.")
@@ -142,7 +143,7 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 			hSystemToken,
 			windows.TOKEN_ALL_ACCESS,
 			nil,
-			windows.SecurityIdentification,
+			windows.SecurityImpersonation,
 			windows.TokenPrimary,
 			&token,
 		)

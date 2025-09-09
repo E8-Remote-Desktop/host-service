@@ -24,6 +24,7 @@ type RDPStreamConnector struct {
 func (video *RDPStreamConnector) Init(config *rdp.StreamConfig, streamer rdp.MediaStreamer) {
 	video.config = config
 	video.streamer = streamer
+	streamer.Init(config)
 	video.isClosing = false
 }
 
@@ -38,7 +39,7 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 
 	gst.Init(nil)
 	// start streams
-	video.streamer.Start(video.config)
+	video.streamer.Start()
 
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(

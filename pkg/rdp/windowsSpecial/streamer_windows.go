@@ -8,10 +8,25 @@ import (
 	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 )
 
-type WindowsMediaStreamer struct{}
+type WindowsMediaStreamer struct {
+	config *rdp.StreamConfig
+}
 
-func (w *WindowsMediaStreamer) Start(config *rdp.StreamConfig) error {
+func (w *WindowsMediaStreamer) Init(config *rdp.StreamConfig) error {
+	w.config = config
 	return nil
+}
+
+func (w *WindowsMediaStreamer) Start() error {
+	return nil
+}
+
+func (w *WindowsMediaStreamer) Restart() {
+	if w.config == nil {
+		return
+	}
+	w.Start()
+
 }
 
 func (w *WindowsMediaStreamer) Cancel() {

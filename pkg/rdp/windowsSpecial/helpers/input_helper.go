@@ -5,12 +5,39 @@ package helpers
 
 import (
 	"encoding/binary"
+	"io"
 	"log"
+	"net"
+	"time"
 	"unsafe"
 
+	"github.com/Microsoft/go-winio"
 	"github.com/go-vgo/robotgo"
 	"github.com/stephen-fox/user32util"
 )
+
+const pipeName = `\\.\pipe\e8-input`
+
+func main() {
+	log.Println("Starting input handler client...")
+	helper := &WindowsInputHelper{}
+	conn := connectToServer() // This function will handle connection and retries
+	defer conn.Close()
+
+	helper.Init()
+	defer helper.Close()
+
+	log.Println("Client connected and listening for commands.")
+
+	// This loop reads from the pipe and processes commands until the connection closes
+	for {
+		if !helper.listenForCommands(conn) {
+			break
+		}
+	}
+
+	log.Println("Connection closed. Client shutting down.")
+}
 
 type WindowsInputHelper struct {
 	lastButtons byte
@@ -126,6 +153,45 @@ const (
 	SC_APPS  = 0xE05D // Menu key (extended)
 )
 
+func connectToServer() net.Conn {
+	var conn net.Conn
+	var err error
+	for {
+
+		conn, err = winio.DialPipe(pipeName)
+		if err == nil {
+			// Connection successful, send the start message
+			startMessage := []byte{0, 1}
+			if _, writeErr := conn.Write(startMessage); writeErr != nil {
+				log.Fatalf("Failed to send start message: %v", writeErr)
+			}
+			log.Println("Sent start message [0, 1] to server.")
+			return conn
+		}
+		log.Printf("Failed to connect to server: %v. Retrying in 100 ms...", err)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (input *WindowsInputHelper) listenForCommands(conn net.Conn) bool {
+	// Buffer to read data from the pipe
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		if err != io.EOF {
+			log.Printf("Pipe read error: %v", err)
+		}
+		return false // Stop on error or EOF
+	}
+
+	if n > 0 {
+		// Pass the slice and check if the processor received a close command
+		return input.dataProcessor(conn, buf[:n])
+	}
+
+	return true
+}
+
 func (input *WindowsInputHelper) Close() {
 	for key, value := range input.pressedKeys {
 		if value {
@@ -173,12 +239,24 @@ func (input *WindowsInputHelper) Init() {
 	log.Println("Windows Input handler initialized")
 }
 
-func (input *WindowsInputHelper) dataProcessor(data []byte) {
+func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool {
 	switch data[0] {
+	case 0: // State Change
+		if len(data) > 1 && data[1] == 3 {
+			input.Close()
+
+			// Send the close acknowledgment [0, 0] back to the server
+			log.Println("Close request received. Sending acknowledgment.")
+			ack := []byte{0, 0}
+			if _, err := conn.Write(ack); err != nil {
+				log.Printf("Failed to send close acknowledgment: %v", err)
+			}
+			return false
+		}
 	case 1: // Keyboard Event
 		if len(data) < 5 {
 			log.Println("Invalid keyboard packet")
-			return
+			return true
 		}
 		keyCode := binary.BigEndian.Uint16(data[1:3])
 		keyDown := data[4] == 1
@@ -186,12 +264,12 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 		sc, ok := scMap[keyCode]
 		if !ok {
 			log.Printf("Unknown key code: %d\n", keyCode)
-			return
+			return true
 		}
 
 		// Check if state already matches
 		if !input.pressedKeys[sc] && !keyDown {
-			return // already pressed or already released, skip
+			return true // already pressed or already released, skip
 		}
 
 		// Send main key event
@@ -201,7 +279,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 	case 2: // Mouse Move
 		if len(data) < 6 {
 			log.Println("Invalid mouse move packet")
-			return
+			return true
 		}
 		dx := int16(binary.BigEndian.Uint16(data[2:4]))
 		dy := int16(binary.BigEndian.Uint16(data[4:6]))
@@ -226,7 +304,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 	case 3: // Mouse Button Event
 		if len(data) < 3 {
 			log.Println("Invalid mouse button packet")
-			return
+			return true
 		}
 		button := data[1]
 		action := data[2] // 1 = down, 0 = up
@@ -241,7 +319,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 			btnName = "right"
 		default:
 			log.Printf("Unknown mouse button: %d\n", button)
-			return
+			return true
 		}
 
 		var direction string
@@ -251,7 +329,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 			direction = "up"
 		} else {
 			log.Printf("Unknown mouse button action: %d\n", action)
-			return
+			return true
 		}
 
 		if err := robotgo.Toggle(btnName, direction); err != nil {
@@ -260,7 +338,7 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 	case 4: // Scroll Event
 		if len(data) < 4 {
 			log.Println("Invalid scroll packet")
-			return
+			return true
 		}
 		// robotgo scroll direction is inverted compared to many systems.
 		// Positive deltaY usually means scrolling down, which for robotgo is "up".
@@ -275,41 +353,43 @@ func (input *WindowsInputHelper) dataProcessor(data []byte) {
 
 	default:
 		log.Printf("Unknown input event type: %d", data[0])
+		return true
 	}
+	return true
 }
 
 // handleMouseButtons processes mouse button press and release events.
-func (input *WindowsInputHelper) handleMouseButtons(buttons byte) {
-	changed := buttons ^ input.lastButtons
+//func (input *WindowsInputHelper) handleMouseButtons(buttons byte) {
+//changed := buttons ^ input.lastButtons
 
-	if changed == 0 {
-		return // No change in button state
-	}
+//if changed == 0 {
+//return // No change in button state
+//}
 
-	buttonMap := []struct {
-		mask byte
-		name string
-	}{
-		{1 << 0, "left"},
-		{1 << 1, "right"},
-		{1 << 2, "center"}, // "center" is often the middle button click
-	}
+//buttonMap := []struct {
+//mask byte
+//name string
+//}{
+//{1 << 0, "left"},
+//{1 << 1, "right"},
+//{1 << 2, "center"}, // "center" is often the middle button click
+//}
 
-	for _, btn := range buttonMap {
-		if changed&btn.mask != 0 {
-			// Determine if it was a press or release
-			isPressed := buttons&btn.mask != 0
-			direction := "up"
-			if isPressed {
-				direction = "down"
-			}
+//for _, btn := range buttonMap {
+//if changed&btn.mask != 0 {
+//// Determine if it was a press or release
+//isPressed := buttons&btn.mask != 0
+//direction := "up"
+//if isPressed {
+//direction = "down"
+//}
 
-			// robotgo.Toggle handles both press and release
-			if err := robotgo.Toggle(btn.name, direction); err != nil {
-				log.Printf("Mouse %s %s error: %v", btn.name, direction, err)
-			}
-		}
-	}
+//// robotgo.Toggle handles both press and release
+//if err := robotgo.Toggle(btn.name, direction); err != nil {
+//log.Printf("Mouse %s %s error: %v", btn.name, direction, err)
+//}
+//}
+//}
 
-	input.lastButtons = buttons
-}
+//input.lastButtons = buttons
+//}

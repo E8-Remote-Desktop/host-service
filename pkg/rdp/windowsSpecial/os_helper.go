@@ -1,11 +1,12 @@
 package windowsspecial
 
 import (
-	"fmt"
 	"time"
 	"unsafe"
 
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -19,15 +20,44 @@ const (
 	WTSWinStationName = 7
 )
 
+type WindowsOSHelper struct {
+	input    *WindowsInputProcessor
+	streamer *WindowsMediaStreamer
+}
+
+func (helper *WindowsOSHelper) Init() {
+	helper.input = input
+	helper.streamer = streamer
+	go helper.MonitorDesktops()
+
+}
+
+func (helper *WindowsOSHelper) Close() error {
+	helper.input.Close()
+	helper.streamer.Cancel()
+	return nil
+}
+
+func (helper *WindowsOSHelper) RestartInteractiveServices() {
+	// we should only need to check input
+	if !helper.input.IsStarted {
+		return
+	}
+	helper.input.Close()
+	helper.streamer.Cancel()
+	helper.input.Start()
+	helper.streamer.Start()
+
+}
+
 // monitorDesktops loops every 50ms and prints the active desktop name when it changes
-func MonitorDesktops() {
+func (helper *WindowsOSHelper) MonitorDesktops() {
 	var lastDesktop string
 
 	for {
 		desktop, err := getActiveDesktop()
 		if err == nil && desktop != lastDesktop {
-			fmt.Println("Desktop changed:", desktop)
-			lastDesktop = desktop
+			helper.RestartInteractiveServices()
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -60,7 +90,7 @@ func getActiveDesktop() (string, error) {
 	}
 	defer procWTSFreeMemory.Call(pName)
 	// go gc have mercy plz this should work
-	wsName := (*uint16)(unsafe.Pointer(pName)) // ignore
+	wsName := windows.UTF16PtrToString((*uint16)(unsafe.Pointer(pName)))
 
 	// Open interactive window station
 	hWS, err := openWindowStation(wsName, false, WINSTA_READATTRIBUTES)
@@ -89,23 +119,4 @@ func getActiveDesktop() (string, error) {
 	}
 
 	return name, nil
-}
-
-// helper to get current process window station
-func getProcessWindowStation() (syscall.Handle, error) {
-	ret, _, err := user32.NewProc("GetProcessWindowStation").Call()
-	if ret == 0 {
-		return 0, err
-	}
-	return syscall.Handle(ret), nil
-}
-
-// helper to close desktop
-func CloseDesktop(h syscall.Handle) {
-	procCloseDesktop.Call(uintptr(h))
-}
-
-// helper to close window station
-func CloseWindowStation(h syscall.Handle) {
-	procCloseWindowStation.Call(uintptr(h))
 }

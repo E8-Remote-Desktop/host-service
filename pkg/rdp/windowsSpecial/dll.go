@@ -4,6 +4,7 @@
 package windowsspecial
 
 import (
+	"log"
 	"syscall"
 	"unsafe"
 
@@ -33,12 +34,16 @@ const (
 	WINSTA_READATTRIBUTES = windows.STANDARD_RIGHTS_READ | WINSTA_ENUMDESKTOPS | WINSTA_ENUMERATE | WINSTA_READSCREEN
 )
 
-func openWindowStation(name *uint16, inherit bool, desiredAccess uint32) (syscall.Handle, error) {
+func openWindowStation(name string, inherit bool, desiredAccess uint32) (syscall.Handle, error) {
 	var inheritInt uintptr
 	if inherit {
 		inheritInt = 1
 	}
-	ret, _, err := procOpenWindowStationW.Call(uintptr(unsafe.Pointer(name)), inheritInt, uintptr(desiredAccess))
+	wName, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		log.Printf("Could not openWindowStation name convert to string %v", err)
+	}
+	ret, _, err := procOpenWindowStationW.Call(uintptr(unsafe.Pointer(wName)), inheritInt, uintptr(desiredAccess))
 	if ret == 0 {
 		return 0, err
 	}
@@ -79,4 +84,22 @@ func getUserObjectInformation(hObject syscall.Handle, index uint32) (string, err
 		return "", err
 	}
 	return windows.UTF16ToString(nameBuffer), nil
+}
+
+func getProcessWindowStation() (syscall.Handle, error) {
+	ret, _, err := user32.NewProc("GetProcessWindowStation").Call()
+	if ret == 0 {
+		return 0, err
+	}
+	return syscall.Handle(ret), nil
+}
+
+// helper to close desktop
+func CloseDesktop(h syscall.Handle) {
+	procCloseDesktop.Call(uintptr(h))
+}
+
+// helper to close window station
+func CloseWindowStation(h syscall.Handle) {
+	procCloseWindowStation.Call(uintptr(h))
 }

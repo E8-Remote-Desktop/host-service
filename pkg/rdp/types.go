@@ -35,7 +35,8 @@ type StreamConfig struct {
 }
 
 type MediaStreamer interface {
-	Start(*StreamConfig) error
+	Init(*StreamConfig) error
+	Start() error
 	Cancel()
 }
 
@@ -45,7 +46,8 @@ type Configurator interface {
 
 type InputProcessor interface {
 	// all of these should follow the protocol
-	Send([]byte)
+	Start() error
+	Send([]byte) error
 	// This will only be called by the RTCInputConnector
 	Close() error
 	//GetCursorPosition() ([]byte, error)

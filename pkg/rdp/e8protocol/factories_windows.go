@@ -22,5 +22,5 @@ func GetConfigurator() rdp.Configurator {
 }
 
 func GetOSHelper() rdp.OSHelper {
-	return &windowsspecial.OSHelper{}
+	return &windowsspecial.WindowsOSHelper{}
 }
