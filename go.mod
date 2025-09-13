@@ -3,6 +3,7 @@ module github.com/e8-remote-desktop/host-service
 go 1.24.5
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/bendahl/uinput v1.7.0
 	github.com/go-gst/go-glib v1.4.0
 	github.com/go-gst/go-gst v1.4.0
@@ -11,10 +12,10 @@ require (
 	github.com/pion/webrtc/v3 v3.3.6
 	github.com/stephen-fox/user32util v0.3.1
 	github.com/zieckey/goini v0.0.0-20240615065340-08ee21c836fb
+	golang.org/x/sys v0.35.0
 )
 
 require (
-	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/bmizerany/assert v0.0.0-20160611221934-b7ed37b82869 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dblohm7/wingoes v0.0.0-20240820181039-f2b84150679e // indirect
@@ -63,6 +64,5 @@ require (
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/image v0.27.0 // indirect
 	golang.org/x/net v0.22.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

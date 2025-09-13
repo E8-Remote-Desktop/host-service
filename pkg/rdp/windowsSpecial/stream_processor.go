@@ -11,11 +11,11 @@ import (
 	"github.com/Microsoft/go-winio"
 )
 
-// pipeNameInput is the static name for the Windows named pipe.
-const pipeNameInput = `\\.\pipe\e8-input`
+// pipeName is the static name for the Windows named pipe.
+const pipeNameStream = `\\.\pipe\e8-stream`
 
-// WindowsInputProcessor manages a Windows named pipe connection for raw byte communication.
-type WindowsInputProcessor struct {
+// WindowsStreamProcessor manages a Windows named pipe connection for raw byte communication.
+type WindowsStreamProcessor struct {
 	isStarted bool
 	mu        sync.Mutex // Protects all fields below
 
@@ -31,10 +31,10 @@ type WindowsInputProcessor struct {
 // Start creates a named pipe, waits for a client, and performs a start handshake.
 // It waits for a 2-byte message [0, 1] from the client. If this message is not
 // received within 5 seconds of the client connecting, it returns an error.
-func (processor *WindowsInputProcessor) IsStarted() bool {
+func (processor *WindowsStreamProcessor) IsStarted() bool {
 	return processor.isStarted
 }
-func (processor *WindowsInputProcessor) Start() error {
+func (processor *WindowsStreamProcessor) Start() error {
 	// TODO: security allow only 1 client on the pipe
 	processor.mu.Lock()
 	if processor.isStarted {
@@ -47,7 +47,7 @@ func (processor *WindowsInputProcessor) Start() error {
 	processor.recvChan = make(chan []byte, 100)
 	processor.quitChan = make(chan struct{})
 
-	listener, err := winio.ListenPipe(pipeNameInput, nil)
+	listener, err := winio.ListenPipe(pipeNameStream, nil)
 	if err != nil {
 		processor.mu.Unlock()
 		return fmt.Errorf("failed to listen on named pipe: %w", err)
@@ -106,12 +106,12 @@ func (processor *WindowsInputProcessor) Start() error {
 }
 
 // Send provides a non-blocking way to send a byte slice to the client.
-func (processor *WindowsInputProcessor) Send(data []byte) error {
+func (processor *WindowsStreamProcessor) Send(data []byte) {
 	processor.mu.Lock()
 	defer processor.mu.Unlock()
 
 	if !processor.isStarted {
-		return nil // Or log a warning: fmt.Println("Warning: Send called on a stopped processor")
+		return // Or log a warning: fmt.Println("Warning: Send called on a stopped processor")
 	}
 
 	// Use a select to prevent blocking if the send channel is full.
@@ -121,19 +121,18 @@ func (processor *WindowsInputProcessor) Send(data []byte) error {
 		// This case is hit if the channel buffer is full.
 		// You could log this event if necessary.
 	}
-	return nil
 }
 
 // Receive returns a read-only channel that broadcasts all messages received from the client.
 // Any function can call this to get access to the stream of incoming data.
-func (processor *WindowsInputProcessor) Receive() <-chan []byte {
+func (processor *WindowsStreamProcessor) Receive() <-chan []byte {
 	return processor.recvChan
 }
 
 // Close sends a shutdown message and waits for a specific acknowledgment.
 // It sends [0, 3] and waits for [0, 0]. If the ack is not received within 10 seconds,
 // it returns an error but still proceeds with cleanup.
-func (processor *WindowsInputProcessor) Close() error {
+func (processor *WindowsStreamProcessor) Close() error {
 	processor.mu.Lock()
 	if !processor.isStarted {
 		processor.mu.Unlock()
@@ -169,7 +168,7 @@ func (processor *WindowsInputProcessor) Close() error {
 }
 
 // cleanup handles the graceful shutdown of goroutines and network resources.
-func (processor *WindowsInputProcessor) cleanup() {
+func (processor *WindowsStreamProcessor) cleanup() {
 	processor.mu.Lock()
 	defer processor.mu.Unlock()
 
@@ -201,7 +200,7 @@ func (processor *WindowsInputProcessor) cleanup() {
 }
 
 // readLoop continuously reads from the connection and forwards messages.
-func (processor *WindowsInputProcessor) readLoop() {
+func (processor *WindowsStreamProcessor) readLoop() {
 	defer processor.wg.Done()
 	buf := make([]byte, 4096)
 	closeAck := []byte{0, 0}
@@ -232,7 +231,7 @@ func (processor *WindowsInputProcessor) readLoop() {
 }
 
 // writeLoop continuously reads from the send channel and writes to the connection.
-func (processor *WindowsInputProcessor) writeLoop() {
+func (processor *WindowsStreamProcessor) writeLoop() {
 	defer processor.wg.Done()
 	for {
 		select {

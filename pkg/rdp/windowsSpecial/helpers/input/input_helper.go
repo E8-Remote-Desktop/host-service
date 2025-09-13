@@ -157,8 +157,9 @@ func connectToServer() net.Conn {
 	var conn net.Conn
 	var err error
 	for {
-
-		conn, err = winio.DialPipe(pipeName)
+		// We want rapid restarts until we can connect
+		timeout := 50 * time.Millisecond
+		conn, err = winio.DialPipe(pipeName, &timeout)
 		if err == nil {
 			// Connection successful, send the start message
 			startMessage := []byte{0, 1}
@@ -169,7 +170,6 @@ func connectToServer() net.Conn {
 			return conn
 		}
 		log.Printf("Failed to connect to server: %v. Retrying in 100 ms...", err)
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -243,7 +243,6 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 	switch data[0] {
 	case 0: // State Change
 		if len(data) > 1 && data[1] == 3 {
-			input.Close()
 
 			// Send the close acknowledgment [0, 0] back to the server
 			log.Println("Close request received. Sending acknowledgment.")
@@ -251,6 +250,7 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 			if _, err := conn.Write(ack); err != nil {
 				log.Printf("Failed to send close acknowledgment: %v", err)
 			}
+			// close handled in defer in main
 			return false
 		}
 	case 1: // Keyboard Event

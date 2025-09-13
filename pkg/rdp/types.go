@@ -50,12 +50,13 @@ type InputProcessor interface {
 	Send([]byte) error
 	// This will only be called by the RTCInputConnector
 	Close() error
+	IsStarted() bool
 	//GetCursorPosition() ([]byte, error)
 	//GetCursorVisibility() ([]byte, error)
 }
 
 // mainly used for authentication and os abstractions, should be it's own standalone thing
 type OSHelper interface {
-	Init() error
+	Init(InputProcessor, MediaStreamer) error
 	Close() error
 }

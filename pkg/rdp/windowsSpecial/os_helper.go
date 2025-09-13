@@ -1,11 +1,16 @@
 package windowsspecial
 
 import (
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"time"
 	"unsafe"
 
 	"syscall"
 
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"golang.org/x/sys/windows"
 )
 
@@ -21,14 +26,26 @@ const (
 )
 
 type WindowsOSHelper struct {
-	input    *WindowsInputProcessor
-	streamer *WindowsMediaStreamer
+	input    rdp.InputProcessor
+	streamer rdp.MediaStreamer
+	exePath  string
+	runner   *DesktopRunner
 }
 
-func (helper *WindowsOSHelper) Init() {
+func (helper *WindowsOSHelper) Init(input rdp.InputProcessor, streamer rdp.MediaStreamer) {
 	helper.input = input
 	helper.streamer = streamer
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	exePath, err = filepath.Abs(exePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	helper.exePath = exePath
 	go helper.MonitorDesktops()
+	helper.runner = &DesktopRunner{}
 
 }
 
@@ -39,12 +56,15 @@ func (helper *WindowsOSHelper) Close() error {
 }
 
 func (helper *WindowsOSHelper) RestartInteractiveServices() {
-	// we should only need to check input
-	if !helper.input.IsStarted {
+	// we should only need to check input (right?)
+	if !helper.input.IsStarted() {
 		return
 	}
 	helper.input.Close()
 	helper.streamer.Cancel()
+	// Start helpers
+	helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)})
+
 	helper.input.Start()
 	helper.streamer.Start()
 

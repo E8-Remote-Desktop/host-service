@@ -6,19 +6,111 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"runtime"
+	"time"
 
+	"github.com/Microsoft/go-winio"
 	"github.com/e8-remote-desktop/host-service/pkg/rdp"
+	windowsspecial "github.com/e8-remote-desktop/host-service/pkg/rdp/windowsSpecial"
 	"github.com/go-gst/go-glib/glib"
 	"github.com/go-gst/go-gst/gst"
 )
+
+const pipeName = `\\.\pipe\e8-stream`
 
 type WindowsStreamHelper struct {
 	mainLoop       *glib.MainLoop
 	mainLoopCancel context.CancelFunc
 	pipelines      []*gst.Pipeline
 	isClosing      bool
+}
+
+func main() {
+	log.Println("Starting input handler client...")
+	helper := &WindowsStreamHelper{}
+	conn := connectToServer() // This function will handle connection and retries
+	defer conn.Close()
+
+	defer helper.Cancel()
+
+	log.Println("Client connected and listening for commands.")
+
+	// This loop reads from the pipe and processes commands until the connection closes
+	for {
+		if !helper.listenForCommands(conn) {
+			break
+		}
+	}
+
+	log.Println("Connection closed. Client shutting down.")
+}
+
+func connectToServer() net.Conn {
+	var conn net.Conn
+	var err error
+	for {
+		// We want rapid restarts until we can connect
+		timeout := 50 * time.Millisecond
+		conn, err = winio.DialPipe(pipeName, &timeout)
+		if err == nil {
+			// Connection successful, send the start message
+			startMessage := []byte{0, 1}
+			if _, writeErr := conn.Write(startMessage); writeErr != nil {
+				log.Fatalf("Failed to send start message: %v", writeErr)
+			}
+			log.Println("Sent start message [0, 1] to server.")
+			return conn
+		}
+		log.Printf("Failed to connect to server: %v. Retrying in 100 ms...", err)
+	}
+}
+
+func (streamer *WindowsStreamHelper) listenForCommands(conn net.Conn) bool {
+	// Buffer to read data from the pipe
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		if err != io.EOF {
+			log.Printf("Pipe read error: %v", err)
+		}
+		return false // Stop on error or EOF
+	}
+	msg := string(buf[:n])
+
+	if n > 0 {
+		// Pass the slice and check if the processor received a close command
+		return streamer.msgProcessor(conn, msg)
+	}
+
+	return true
+}
+
+func (streamer *WindowsStreamHelper) msgProcessor(conn net.Conn, msg string) bool {
+	switch msg {
+	case "start":
+		// temp until the client-side settings
+		configurator := &windowsspecial.WindowsConfigurator{}
+		config, err := configurator.GetConfig()
+		if err != nil {
+			log.Fatalf("could not load config in helper", err)
+		}
+		streamer.StartStreaming(config)
+	case "close":
+
+		// Send the close acknowledgment [0, 0] back to the server
+		log.Println("Close request received. Sending acknowledgment.")
+		ack := "closeACK"
+		if _, err := conn.Write([]byte(ack)); err != nil {
+			log.Printf("Failed to send close acknowledgment: %v", err)
+		}
+		// close handled in defer in main
+		return false
+	}
+
+	return true
 }
 
 func (streamer *WindowsStreamHelper) buildGstVideoPipeline(config *rdp.StreamConfig) string {
