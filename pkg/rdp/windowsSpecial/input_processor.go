@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 )
 
 // pipeNameInput is the static name for the Windows named pipe.
@@ -28,9 +29,16 @@ type WindowsInputProcessor struct {
 	closeAckChan chan struct{} // Used exclusively for the Close() handshake
 }
 
+func (processor *WindowsInputProcessor) Init(config *rdp.StreamConfig) error {
+	// ignored the helpers load the config themselves
+	return nil
+
+}
+
 // Start creates a named pipe, waits for a client, and performs a start handshake.
 // It waits for a 2-byte message [0, 1] from the client. If this message is not
-// received within 5 seconds of the client connecting, it returns an error.
+// received within 5 seconds of the client connecting, it returns an error
+
 func (processor *WindowsInputProcessor) IsStarted() bool {
 	return processor.isStarted
 }

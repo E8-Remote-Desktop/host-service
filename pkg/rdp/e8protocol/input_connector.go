@@ -19,10 +19,6 @@ func (input *RDPInputConnector) Init(ip rdp.InputProcessor) error {
 	return nil
 }
 
-func (input *RDPInputConnector) Close() {
-	input.inputProcessor.Close()
-}
-
 // AcceptDataChannel sets up the handler for incoming WebRTC data channels.
 func (input *RDPInputConnector) AcceptDataChannel(pc *webrtc.PeerConnection) {
 	pc.OnDataChannel(input.processor)

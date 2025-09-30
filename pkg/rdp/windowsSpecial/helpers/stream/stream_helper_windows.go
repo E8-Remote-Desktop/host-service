@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package helpers
+package winStreamHelper
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type WindowsStreamHelper struct {
 	isClosing      bool
 }
 
-func main() {
+func Main() {
 	log.Println("Starting input handler client...")
 	helper := &WindowsStreamHelper{}
 	conn := connectToServer() // This function will handle connection and retries
@@ -95,7 +95,7 @@ func (streamer *WindowsStreamHelper) msgProcessor(conn net.Conn, msg string) boo
 		configurator := &windowsspecial.WindowsConfigurator{}
 		config, err := configurator.GetConfig()
 		if err != nil {
-			log.Fatalf("could not load config in helper", err)
+			log.Fatalf("could not load config in helper %v", err)
 		}
 		streamer.StartStreaming(config)
 	case "close":

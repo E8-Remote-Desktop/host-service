@@ -32,7 +32,7 @@ type WindowsOSHelper struct {
 	runner   *DesktopRunner
 }
 
-func (helper *WindowsOSHelper) Init(input rdp.InputProcessor, streamer rdp.MediaStreamer) {
+func (helper *WindowsOSHelper) Init(input rdp.InputProcessor, streamer rdp.MediaStreamer) error {
 	helper.input = input
 	helper.streamer = streamer
 	exePath, err := os.Executable()
@@ -44,14 +44,24 @@ func (helper *WindowsOSHelper) Init(input rdp.InputProcessor, streamer rdp.Media
 		log.Fatal(err)
 	}
 	helper.exePath = exePath
-	go helper.MonitorDesktops()
 	helper.runner = &DesktopRunner{}
+	return nil
+
+}
+
+func (helper *WindowsOSHelper) StartStreamAndInput() error {
+	helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)})
+	helper.input.Start()
+	helper.streamer.Start()
+
+	go helper.MonitorDesktops()
+	return nil
 
 }
 
 func (helper *WindowsOSHelper) Close() error {
 	helper.input.Close()
-	helper.streamer.Cancel()
+	helper.streamer.Close()
 	return nil
 }
 
@@ -61,7 +71,7 @@ func (helper *WindowsOSHelper) RestartInteractiveServices() {
 		return
 	}
 	helper.input.Close()
-	helper.streamer.Cancel()
+	helper.streamer.Close()
 	// Start helpers
 	helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)})
 

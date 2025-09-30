@@ -1,7 +1,7 @@
 //go:build windows
 // +build windows
 
-package helpers
+package winInputHelper
 
 import (
 	"encoding/binary"
@@ -18,7 +18,8 @@ import (
 
 const pipeName = `\\.\pipe\e8-input`
 
-func main() {
+func Main() {
+
 	log.Println("Starting input handler client...")
 	helper := &WindowsInputHelper{}
 	conn := connectToServer() // This function will handle connection and retries

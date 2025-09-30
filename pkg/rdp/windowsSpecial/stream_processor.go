@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 )
 
 // pipeName is the static name for the Windows named pipe.
@@ -26,6 +27,12 @@ type WindowsStreamProcessor struct {
 	quitChan     chan struct{}
 	wg           sync.WaitGroup
 	closeAckChan chan struct{} // Used exclusively for the Close() handshake
+}
+
+func (processor *WindowsStreamProcessor) Init(config *rdp.StreamConfig) error {
+	// ignored the helpers load the config themselves
+	return nil
+
 }
 
 // Start creates a named pipe, waits for a client, and performs a start handshake.

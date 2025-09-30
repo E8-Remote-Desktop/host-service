@@ -5,12 +5,10 @@ import "github.com/pion/webrtc/v3"
 type RTCInputConnector interface {
 	Init(InputProcessor) error
 	AcceptDataChannel(*webrtc.PeerConnection)
-	// Should also handle close of the input processor
-	Close()
 }
 
 type RTCStreamConnector interface {
-	Init(*StreamConfig, MediaStreamer)
+	Init(*StreamConfig)
 	AttachMediaChannel(*webrtc.PeerConnection)
 	// Must handle MediaStreamer Close
 	Close()
@@ -37,7 +35,8 @@ type StreamConfig struct {
 type MediaStreamer interface {
 	Init(*StreamConfig) error
 	Start() error
-	Cancel()
+	Close() error
+	IsStarted() bool
 }
 
 type Configurator interface {
@@ -46,6 +45,7 @@ type Configurator interface {
 
 type InputProcessor interface {
 	// all of these should follow the protocol
+	Init(*StreamConfig) error
 	Start() error
 	Send([]byte) error
 	// This will only be called by the RTCInputConnector
@@ -55,8 +55,9 @@ type InputProcessor interface {
 	//GetCursorVisibility() ([]byte, error)
 }
 
-// mainly used for authentication and os abstractions, should be it's own standalone thing
+// This should handle closing the Stream and the Input processor
 type OSHelper interface {
 	Init(InputProcessor, MediaStreamer) error
+	StartStreamAndInput() error
 	Close() error
 }

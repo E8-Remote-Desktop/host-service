@@ -18,13 +18,10 @@ type RDPStreamConnector struct {
 	streamsMutex         sync.Mutex
 	isClosing            bool
 	config               *rdp.StreamConfig
-	streamer             rdp.MediaStreamer
 }
 
-func (video *RDPStreamConnector) Init(config *rdp.StreamConfig, streamer rdp.MediaStreamer) {
+func (video *RDPStreamConnector) Init(config *rdp.StreamConfig) {
 	video.config = config
-	video.streamer = streamer
-	streamer.Init(config)
 	video.isClosing = false
 }
 
@@ -39,7 +36,6 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 
 	gst.Init(nil)
 	// start streams
-	video.streamer.Start()
 
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
@@ -235,9 +231,6 @@ func (video *RDPStreamConnector) Close() {
 		close(done)
 	}()
 
-	if video.streamer != nil {
-		video.streamer.Cancel()
-	}
 	video.cancelRTPTrackInjest = nil
 	video.isClosing = false
 }

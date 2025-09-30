@@ -4,7 +4,7 @@
 package e8protocol
 
 import (
-	rdp "github.com/e8-remote-desktop/host-service/pkg/rdp"
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	windowsspecial "github.com/e8-remote-desktop/host-service/pkg/rdp/windowsSpecial"
 )
 
@@ -14,7 +14,7 @@ func GetInputProcessor() rdp.InputProcessor {
 }
 
 func GetStreamer() rdp.MediaStreamer {
-	return &windowsspecial.WindowsMediaStreamer{}
+	return &windowsspecial.WindowsStreamProcessor{}
 }
 
 func GetConfigurator() rdp.Configurator {
