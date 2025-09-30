@@ -29,12 +29,20 @@ type WindowsStreamHelper struct {
 }
 
 func Main() {
-	log.Println("Starting input handler client...")
+	//gst.Init(nil)
+	log.Println("Starting stream handler client...")
 	helper := &WindowsStreamHelper{}
 	conn := connectToServer() // This function will handle connection and retries
 	defer conn.Close()
 
 	defer helper.Cancel()
+	// start streaming (don't want to have to send start to start streaming)
+	configurator := &windowsspecial.WindowsConfigurator{}
+	config, err := configurator.GetConfig()
+	if err != nil {
+		log.Fatalf("could not load config in helper %v", err)
+	}
+	helper.StartStreaming(config)
 
 	log.Println("Client connected and listening for commands.")
 
@@ -90,14 +98,14 @@ func (streamer *WindowsStreamHelper) listenForCommands(conn net.Conn) bool {
 
 func (streamer *WindowsStreamHelper) msgProcessor(conn net.Conn, msg string) bool {
 	switch msg {
-	case "start":
-		// temp until the client-side settings
-		configurator := &windowsspecial.WindowsConfigurator{}
-		config, err := configurator.GetConfig()
-		if err != nil {
-			log.Fatalf("could not load config in helper %v", err)
-		}
-		streamer.StartStreaming(config)
+	//case "start":
+	//// temp until the client-side settings
+	//configurator := &windowsspecial.WindowsConfigurator{}
+	//config, err := configurator.GetConfig()
+	//if err != nil {
+	//log.Fatalf("could not load config in helper %v", err)
+	//}
+	//streamer.StartStreaming(config)
 	case "close":
 
 		// Send the close acknowledgment [0, 0] back to the server

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -93,7 +94,7 @@ func (processor *WindowsInputProcessor) Start() error {
 		processor.listener.Close()
 		return fmt.Errorf("failed to start input: invalid handshake received")
 	}
-
+	log.Printf("Recieved Start Handshake from input helper")
 	// Handshake successful, remove the deadline.
 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
 		conn.Close()
@@ -119,7 +120,8 @@ func (processor *WindowsInputProcessor) Send(data []byte) error {
 	defer processor.mu.Unlock()
 
 	if !processor.isStarted {
-		return nil // Or log a warning: fmt.Println("Warning: Send called on a stopped processor")
+		log.Printf("Send attempted to send to a non-started process")
+		return nil
 	}
 
 	// Use a select to prevent blocking if the send channel is full.

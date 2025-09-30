@@ -6,7 +6,6 @@ package windowsspecial
 import (
 	"fmt"
 	"log"
-	"strings"
 	"syscall"
 	"unsafe"
 
@@ -124,51 +123,51 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 
 	// get token
 	var token windows.Token
-	useMaster := (strings.Contains(desktopName, "Default"))
-	if useMaster {
-		// --- SECURE MODE ---
-		log.Println("Secure Mode detected. Launching with Master Key.")
+	//useMaster := (strings.Contains(desktopName, "Default"))
+	//if useMaster {
+	// --- SECURE MODE ---
+	log.Println("Secure Mode detected. Launching with Master Key.")
 
-		// Get the current SYSTEM process token.
-		var hSystemToken windows.Token
-		processHandle := windows.CurrentProcess()
-		err := windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
-		if err != nil {
-			return fmt.Errorf("OpenProcessToken (SYSTEM) failed: %v", err)
-		}
-		defer hSystemToken.Close()
-
-		// Duplicate it to create a new primary token.
-		err = windows.DuplicateTokenEx(
-			hSystemToken,
-			windows.TOKEN_ALL_ACCESS,
-			nil,
-			windows.SecurityImpersonation,
-			windows.TokenPrimary,
-			&token,
-		)
-		if err != nil {
-			return fmt.Errorf("DuplicateTokenEx failed: %v", err)
-		}
-		defer token.Close()
-
-		// Re-parent the new token to the active user's session.
-		err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
-		if err != nil {
-			return fmt.Errorf("SetTokenInformation failed: %v", err)
-		}
-
-	} else {
-		// --- NORMAL MODE ---
-		log.Println("Normal Mode detected. Launching with User Token.")
-
-		// Get the token of the user in the active session.
-		err := windows.WTSQueryUserToken(sessionID, &token)
-		if err != nil {
-			return fmt.Errorf("WTSQueryUserToken failed: %v", err)
-		}
-		defer token.Close()
+	// Get the current SYSTEM process token.
+	var hSystemToken windows.Token
+	processHandle := windows.CurrentProcess()
+	err = windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
+	if err != nil {
+		return fmt.Errorf("OpenProcessToken (SYSTEM) failed: %v", err)
 	}
+	defer hSystemToken.Close()
+
+	// Duplicate it to create a new primary token.
+	err = windows.DuplicateTokenEx(
+		hSystemToken,
+		windows.TOKEN_ALL_ACCESS,
+		nil,
+		windows.SecurityImpersonation,
+		windows.TokenPrimary,
+		&token,
+	)
+	if err != nil {
+		return fmt.Errorf("DuplicateTokenEx failed: %v", err)
+	}
+	defer token.Close()
+
+	// Re-parent the new token to the active user's session.
+	err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
+	if err != nil {
+		return fmt.Errorf("SetTokenInformation failed: %v", err)
+	}
+
+	//} else {
+	//// --- NORMAL MODE ---
+	//log.Println("Normal Mode detected. Launching with User Token.")
+
+	//// Get the token of the user in the active session.
+	//err := windows.WTSQueryUserToken(sessionID, &token)
+	//if err != nil {
+	//return fmt.Errorf("WTSQueryUserToken failed: %v", err)
+	//}
+	//defer token.Close()
+	//}
 
 	// start processes
 	for _, proc := range processes {
@@ -182,9 +181,9 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 			Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
 		}
 		si.Desktop, _ = syscall.UTF16PtrFromString("winsta0\\default")
-		if useMaster {
-			si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
-		}
+		//if useMaster {
+		si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
+		//}
 
 		var pi windows.ProcessInformation
 		err = windows.CreateProcessAsUser(

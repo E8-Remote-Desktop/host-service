@@ -82,7 +82,10 @@ func (helper *WindowsOSHelper) RestartInteractiveServices() {
 
 // monitorDesktops loops every 50ms and prints the active desktop name when it changes
 func (helper *WindowsOSHelper) MonitorDesktops() {
-	var lastDesktop string
+	lastDesktop, err := getActiveDesktop()
+	if err != nil {
+		log.Fatalf("Could not get active desktop, %v", err)
+	}
 
 	for {
 		desktop, err := getActiveDesktop()

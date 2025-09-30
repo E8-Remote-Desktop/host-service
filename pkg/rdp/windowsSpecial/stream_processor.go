@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -92,7 +93,7 @@ func (processor *WindowsStreamProcessor) Start() error {
 		processor.listener.Close()
 		return fmt.Errorf("failed to start input: invalid handshake received")
 	}
-
+	log.Printf("Recieved Start Handshake from stream helper")
 	// Handshake successful, remove the deadline.
 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
 		conn.Close()

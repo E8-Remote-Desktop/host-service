@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/e8-remote-desktop/host-service/pkg/rdp"
-	"github.com/go-gst/go-gst/gst"
 	"github.com/pion/webrtc/v3"
 )
 
@@ -26,6 +25,7 @@ func (video *RDPStreamConnector) Init(config *rdp.StreamConfig) {
 }
 
 func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerConnection) {
+	log.Printf("Starting Media Channel")
 	video.streamsMutex.Lock()
 	defer video.streamsMutex.Unlock()
 
@@ -33,9 +33,6 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 		log.Printf("WARNING: Closing RTP Injest Loops before attaching to media, call close before this!\n")
 		video.Close()
 	}
-
-	gst.Init(nil)
-	// start streams
 
 	// Create tracks
 	videoTransceiver, err := PeerConnection.AddTransceiverFromKind(
@@ -67,6 +64,7 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 	if err != nil {
 		panic(err)
 	}
+	log.Printf("Media Tracks Created")
 
 	// Add tracks
 	if videoTransceiver.Sender() != nil {
@@ -75,6 +73,7 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 	if audioTransceiver.Sender() != nil {
 		audioTransceiver.Sender().ReplaceTrack(audioTrack)
 	}
+	log.Printf("Media Tracks Added")
 
 	// RTP Loop to injest the RTP frames
 	ctx, cancel := context.WithCancel(context.Background())
@@ -82,10 +81,10 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 
 	log.Printf("Starting Media Stream")
 	log.Println("RTP Stream Started")
-
 	video.streamWaitGroup.Add(2)
 	go video.receiveRTPAndForward(ctx, "127.0.0.1:50045", audioTrack, video.config)
 	go video.receiveRTPAndForward(ctx, "127.0.0.1:50055", videoTrack, video.config)
+	log.Printf("Media Forwarding Loops Ignited")
 }
 
 func (video *RDPStreamConnector) receiveRTPAndForward(

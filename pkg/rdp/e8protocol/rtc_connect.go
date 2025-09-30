@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
 	rdp "github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/gorilla/websocket"
@@ -36,12 +35,6 @@ type RDPWebRTCConnect struct {
 // Also handles the socket connection
 func (rtcInitalizer *RDPWebRTCConnect) Start() {
 
-	f, err := os.OpenFile(`C:\rtc.log`,
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		log.Fatalf("error opening file: %v", err)
-	}
-	defer f.Close()
 	// DI
 	rtcInitalizer.captureStream = &RDPStreamConnector{}
 	rtcInitalizer.input = &RDPInputConnector{}
@@ -54,6 +47,9 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 
 	// init stuff
 	configOptions, err := config.GetConfig()
+	if err != nil {
+		log.Fatalf("Could not read config")
+	}
 	rtcInitalizer.captureStream.Init(configOptions)
 	if err := rtcInitalizer.input.Init(inputProcessor); err != nil {
 		log.Fatalf("Could not init input %v\n", err)
@@ -151,12 +147,13 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 				log.Fatal(err)
 			}
 
-			// Data channel accept (client opens the input data channel on the browser side)
-			rtcInitalizer.input.AcceptDataChannel(rtcInitalizer.peerConnection)
-
 			// Attach media channel
 			rtcInitalizer.oshelper.StartStreamAndInput()
+			log.Printf("Media-Stream and Input Started")
+
 			rtcInitalizer.captureStream.AttachMediaChannel(rtcInitalizer.peerConnection)
+			rtcInitalizer.input.AcceptDataChannel(rtcInitalizer.peerConnection)
+			log.Printf("Media/Data Channels Initalized")
 
 			// Set remote offer
 			offer := webrtc.SessionDescription{
