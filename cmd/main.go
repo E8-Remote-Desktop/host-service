@@ -64,17 +64,20 @@ func main() {
 
 	switch {
 	case *inputFlag:
-		redirectStdout("input")
+		closeFunc := redirectStdout("input")
+		defer closeFunc()
 		fmt.Println("Running Input Helper...")
 		winInputHelper.Main()
 
 	case *streamFlag:
-		redirectStdout("stream")
+		closeFunc := redirectStdout("stream")
+		defer closeFunc()
 		fmt.Println("Running Stream Helper...")
 		winStreamHelper.Main()
 
 	default:
-		redirectStdout("full")
+		closeFunc := redirectStdout("full")
+		defer closeFunc()
 		fmt.Println("Running full RDP server...")
 		rdpServer.Start()
 	}

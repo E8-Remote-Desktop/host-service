@@ -171,6 +171,7 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 					log.Println("Error adding pending ICE candidate:", err)
 				}
 			}
+			log.Printf("ICE Candidates Set")
 			pendingCandidates = nil
 
 			// Create answer
@@ -178,6 +179,7 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 			if err != nil {
 				log.Fatal(err)
 			}
+			log.Printf("Answer Created, %s", answer.SDP)
 
 			err = rtcInitalizer.peerConnection.SetLocalDescription(answer)
 			if err != nil {

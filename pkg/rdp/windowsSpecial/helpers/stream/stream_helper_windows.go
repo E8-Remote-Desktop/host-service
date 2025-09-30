@@ -29,7 +29,7 @@ type WindowsStreamHelper struct {
 }
 
 func Main() {
-	//gst.Init(nil)
+	gst.Init(nil)
 	log.Println("Starting stream handler client...")
 	helper := &WindowsStreamHelper{}
 	conn := connectToServer() // This function will handle connection and retries
@@ -136,7 +136,7 @@ func (streamer *WindowsStreamHelper) buildGstVideoPipeline(config *rdp.StreamCon
 			fmt.Sprintf("! qsv%senc rate-control=cbr bitrate=%d gop-size=%d low-latency=true target-usage=7 rc-lookahead=0 ", config.Codec, config.Bitrate, config.Gopsize) +
 			"! queue max-size-buffers=2 max-size-time=0 max-size-bytes=0 leaky=downstream " +
 			fmt.Sprintf("! video/x-%s,stream-format=byte-stream,alignment=au ", config.Codec) +
-			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d", rtpCodec, config.MTU) +
+			fmt.Sprintf("! rtp%spay config-interval=0 pt=96 aggregate-mode=zero-latency mtu=%d ", rtpCodec, config.MTU) +
 			"! udpsink host=127.0.0.1 port=50055 sync=false async=false "
 
 		log.Println(pipeline)
