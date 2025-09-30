@@ -214,8 +214,6 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 	return nil
 }
 
-func (runner *DesktopRunner) RunProcess() {}
-
 func (runner *DesktopRunner) StopProcesses() {
 	for _, h := range runner.procHandles {
 		err := windows.TerminateProcess(h, 1) // exit code 1

@@ -45,6 +45,17 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 	inputProcessor := GetInputProcessor()
 	streamProcessor := GetStreamer()
 
+	// force port
+	rtcSettings := webrtc.SettingEngine{}
+	rtcSettings.SetEphemeralUDPPortRange(50000, 50001)
+
+	rtcMediaEngine := webrtc.MediaEngine{}
+	if err := rtcMediaEngine.RegisterDefaultCodecs(); err != nil {
+		log.Fatalf("Could not register media codecs on the engine? %v", err)
+	}
+
+	rtcAPI := webrtc.NewAPI(webrtc.WithSettingEngine(rtcSettings), webrtc.WithMediaEngine(&rtcMediaEngine))
+
 	// init stuff
 	configOptions, err := config.GetConfig()
 	if err != nil {
@@ -130,7 +141,7 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 				rtcInitalizer.peerConnection = nil
 			}
 
-			rtcInitalizer.peerConnection, err = webrtc.NewPeerConnection(webrtc.Configuration{
+			rtcInitalizer.peerConnection, err = rtcAPI.NewPeerConnection(webrtc.Configuration{
 				ICEServers: []webrtc.ICEServer{
 					{
 						URLs: []string{"stun:stun.l.google.com:19302"},
@@ -160,12 +171,13 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 				Type: webrtc.SDPTypeOffer,
 				SDP:  signalmsg.SDP,
 			}
-
+			log.Printf("Trying to set remote description")
 			err = rtcInitalizer.peerConnection.SetRemoteDescription(offer)
 			if err != nil {
 				log.Fatal(err)
 			}
-
+			log.Printf("Remote Description Set")
+			log.Printf("Attempting to add Ice Candidates")
 			for _, candidate := range pendingCandidates {
 				if err := rtcInitalizer.peerConnection.AddICECandidate(*candidate); err != nil {
 					log.Println("Error adding pending ICE candidate:", err)

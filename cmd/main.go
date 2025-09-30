@@ -78,6 +78,7 @@ func main() {
 	default:
 		closeFunc := redirectStdout("full")
 		defer closeFunc()
+		defer log.Printf("BYE!")
 		fmt.Println("Running full RDP server...")
 		rdpServer.Start()
 	}

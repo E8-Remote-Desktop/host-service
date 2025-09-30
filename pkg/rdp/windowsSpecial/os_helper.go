@@ -50,11 +50,13 @@ func (helper *WindowsOSHelper) Init(input rdp.InputProcessor, streamer rdp.Media
 }
 
 func (helper *WindowsOSHelper) StartStreamAndInput() error {
-	helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)})
+	if err := helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)}); err != nil {
+		log.Printf("PROCESS START ERROR! %v", err)
+	}
 	helper.input.Start()
 	helper.streamer.Start()
 
-	go helper.MonitorDesktops()
+	//go helper.MonitorDesktops()
 	return nil
 
 }
@@ -90,7 +92,11 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 	for {
 		desktop, err := getActiveDesktop()
 		if err == nil && desktop != lastDesktop {
+			log.Printf("Restarting Stream and Input due to Desktop Change")
 			helper.RestartInteractiveServices()
+		}
+		if err != nil {
+			log.Printf("Could not detect desktop? %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

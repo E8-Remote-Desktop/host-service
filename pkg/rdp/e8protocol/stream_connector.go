@@ -39,10 +39,12 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 		webrtc.RTPCodecTypeVideo,
 	)
 	if err != nil {
+		log.Printf("Video Track error %v", err)
 		panic(err)
 	}
 	audioTransceiver, err := PeerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio)
 	if err != nil {
+		log.Printf("Audio Track error %v", err)
 		panic(err)
 	}
 
@@ -53,7 +55,6 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 	)
 	if err != nil {
 		log.Fatal("Failed to create video track")
-		panic(err)
 	}
 
 	audioTrack, err := webrtc.NewTrackLocalStaticRTP(
@@ -62,7 +63,7 @@ func (video *RDPStreamConnector) AttachMediaChannel(PeerConnection *webrtc.PeerC
 		"rdp-audio",
 	)
 	if err != nil {
-		panic(err)
+		log.Fatal("Failed to create audio track")
 	}
 	log.Printf("Media Tracks Created")
 
