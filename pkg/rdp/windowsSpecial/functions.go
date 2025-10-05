@@ -91,7 +91,11 @@ func (runner *DesktopRunner) getActiveUserToken() windows.Token {
 		log.Println("No active console session found.")
 	}
 	var token windows.Token
-	windows.WTSQueryUserToken(sessionID, &token)
+	//var blankToken windows.Token
+	err := windows.WTSQueryUserToken(sessionID, &token)
+	if err != nil {
+		log.Printf("ERROR: Could not query user token, %v", err)
+	}
 	user, err := token.GetTokenUser()
 	if err != nil {
 		log.Printf("Could not get user attached to token assuming system mode?: %v", err)
@@ -100,45 +104,44 @@ func (runner *DesktopRunner) getActiveUserToken() windows.Token {
 	if !forceSystem {
 		sid := user.User.Sid
 		_, _, _, err := sid.LookupAccount(sid.String())
-		if err != nil && !forceSystem {
+		if err != nil {
 			log.Printf("Could not find account attached to SID: %v", err)
-		}
-	}
-	if forceSystem {
-		log.Printf("Detected SYSTEM running Terminal Service")
-		var hSystemToken windows.Token
-		processHandle := windows.CurrentProcess()
-		err = windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
-		if err != nil {
-			log.Printf("OpenProcessToken (SYSTEM) failed: %v", err)
 			return token
 		}
-		defer hSystemToken.Close()
-		log.Printf("DEBUG: Opened Process Token, about to duplicate")
-		// TODO refactor this to not potentially leak a token (maybe close the token here if possible)
-
-		// Duplicate it to create a new primary token.
-		err = windows.DuplicateTokenEx(
-			hSystemToken,
-			windows.TOKEN_ALL_ACCESS,
-			nil,
-			windows.SecurityImpersonation,
-			windows.TokenPrimary,
-			&token,
-		)
-		if err != nil {
-			log.Printf("DuplicateTokenEx failed: %v", err)
-			return token
-		}
-		//defer token.Close() // don't close so we can use it for later
-
-		// Re-parent the new token to the active user's session.
-		err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
-		if err != nil {
-			log.Printf("Could not grant permissions to system token")
-		}
-		log.Printf("DEBUG: returning active SYSTEM token")
 	}
+	log.Printf("Detected SYSTEM running Terminal Service")
+	var hSystemToken windows.Token
+	processHandle := windows.CurrentProcess()
+	err = windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
+	if err != nil {
+		log.Printf("OpenProcessToken (SYSTEM) failed: %v", err)
+		return token
+	}
+	defer hSystemToken.Close()
+	log.Printf("DEBUG: Opened Process Token, about to duplicate")
+	// TODO refactor this to not potentially leak a token (maybe close the token here if possible)
+
+	// Duplicate it to create a new primary token.
+	err = windows.DuplicateTokenEx(
+		hSystemToken,
+		windows.TOKEN_ALL_ACCESS,
+		nil,
+		windows.SecurityImpersonation,
+		windows.TokenPrimary,
+		&token,
+	)
+	if err != nil {
+		log.Printf("DuplicateTokenEx failed: %v", err)
+		return token
+	}
+	//defer token.Close() // don't close so we can use it for later
+
+	// Re-parent the new token to the active user's session.
+	err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
+	if err != nil {
+		log.Printf("Could not grant permissions to system token")
+	}
+	log.Printf("DEBUG: returning active SYSTEM token")
 	return token
 }
 
@@ -198,6 +201,16 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 	setProcessWindowStation(hWinSta)
 	log.Printf("DEBUG: Window Station Set")
 
+	/*
+			   DESKTOP_CREATEMENU |
+		                          DESKTOP_CREATEWINDOW |
+		                          DESKTOP_ENUMERATE |
+		                          DESKTOP_HOOKCONTROL |
+		                          DESKTOP_WRITEOBJECTS |
+		                          DESKTOP_READOBJECTS |
+		                          DESKTOP_SWITCHDESKTOP |
+		                          GENERIC_WRITE
+	*/
 	// duplicate token with Security
 	var dupToken windows.Token
 	err = windows.DuplicateTokenEx(
@@ -212,20 +225,12 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 		return "", fmt.Errorf("could not duplicate token %v", err)
 	}
 	impersonateActiveUser(dupToken)
+
 	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
 	defer runner.ResetPermissions()
+
 	var desktopName string
-	/*
-			   DESKTOP_CREATEMENU |
-		                          DESKTOP_CREATEWINDOW |
-		                          DESKTOP_ENUMERATE |
-		                          DESKTOP_HOOKCONTROL |
-		                          DESKTOP_WRITEOBJECTS |
-		                          DESKTOP_READOBJECTS |
-		                          DESKTOP_SWITCHDESKTOP |
-		                          GENERIC_WRITE
-	*/
-	hDesktop, err := openInputDesktop(0, false,
+	hDesktop, err := wrappers.OpenInputDesktop(0, true,
 		wrappers.DESKTOP_READOBJECTS|
 			windows.READ_CONTROL|
 			wrappers.DESKTOP_SWITCHDESKTOP|
@@ -233,31 +238,33 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 			wrappers.DESKTOP_CREATEWINDOW|
 			wrappers.DESKTOP_ENUMERATE,
 	)
-	if err == nil {
-		// again make helper function to make sure this doesn't blow up
-		defer procCloseDesktop.Call(uintptr(hDesktop))
-
-		// Get the desktop's name.
-		var desktopNameLength uint32
-		if err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(nil)), 0, &desktopNameLength); err != nil {
-			//return "", fmt.Errorf("could not get desktop name length, %v", err)
-			log.Printf("DEBUG: Errors from desktop Length %v", err)
-		}
-		log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
-		if desktopNameLength == 0 {
-			return "", fmt.Errorf("desktop not ready yet, length too short ")
-		}
-
-		desktopNameUTF16 := make([]uint16, 256)
-		var blankuint32 uint32
-
-		err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(&desktopNameUTF16[0])), desktopNameLength, &blankuint32)
-
-		if err != nil {
-			return "", fmt.Errorf("could not get desktop name %v", err)
-		}
-		desktopName = windows.UTF16ToString(desktopNameUTF16)
+	if err != nil {
+		log.Printf("ERROR: Could not open desktop %v", err)
+		return "", fmt.Errorf("could not open desktop because of %v", err)
 	}
+	// again make helper function to make sure this doesn't blow up
+	defer procCloseDesktop.Call(uintptr(hDesktop))
+
+	// Get the desktop's name.
+	var desktopNameLength uint32
+	if err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(nil)), 0, &desktopNameLength); err != nil {
+		//return "", fmt.Errorf("could not get desktop name length, %v", err)
+		log.Printf("DEBUG: Errors from desktop Length %v", err)
+	}
+	log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
+	if desktopNameLength == 0 {
+		return "", fmt.Errorf("desktop not ready yet, length too short ")
+	}
+
+	desktopNameUTF16 := make([]uint16, 256)
+	var blankuint32 uint32
+
+	err = wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(&desktopNameUTF16[0])), desktopNameLength, &blankuint32)
+
+	if err != nil {
+		return "", fmt.Errorf("could not get desktop name %v", err)
+	}
+	desktopName = windows.UTF16ToString(desktopNameUTF16)
 	log.Printf("DEBUG: Found Desktop, %s", desktopName)
 
 	if desktopName == "" {

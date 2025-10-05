@@ -133,9 +133,9 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 		log.Printf("DEBUG: Current Desktop: %s", desktop)
 
 		if err != nil {
-			//log.Printf("WARNING: Could not detect desktop, reattempting? %v", err)
-			//time.Sleep(500 * time.Millisecond)
-			//continue
+			log.Printf("WARNING: Could not detect desktop, reattempting? %v", err)
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 		if desktop != lastDesktop {
 			log.Printf("DEBUG: Restarting Stream and Input due to Desktop Change")
