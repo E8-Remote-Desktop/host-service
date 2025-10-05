@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/vito/houdini/win32"
 	"github.com/winlabs/gowin32/wrappers"
 	"golang.org/x/sys/windows"
 )
@@ -19,19 +20,12 @@ type DesktopRunner struct {
 
 // enablePrivileges enables the required SeTcbPrivilege and SeAssignPrimaryTokenPrivilege
 // for the current process. This is mandatory for the token manipulation to work.
-func (runner *DesktopRunner) enablePrivileges() error {
-	var hToken windows.Token
-	// Get the current process token.
-	processHandle := windows.CurrentProcess()
-	err := windows.OpenProcessToken(processHandle, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &hToken)
-	if err != nil {
-		return fmt.Errorf("OpenProcessToken failed: %w", err)
-	}
-	defer hToken.Close()
-
+func (runner *DesktopRunner) enablePrivileges(hToken windows.Token, superpower bool) error {
+	// defer hToken.Close(0)
 	// Prepare the token privileges structure to enable two privileges.
 	// ?? why is the privileges array size statically set to 1
 	// make a new struct for 2?
+
 	type tokenPrivilegesWith2 struct {
 		PrivilegeCount uint32
 		Privileges     [2]windows.LUIDAndAttributes // Array with space for 2
@@ -39,10 +33,14 @@ func (runner *DesktopRunner) enablePrivileges() error {
 	tp := tokenPrivilegesWith2{
 		PrivilegeCount: 2,
 	}
-
 	// Look up the LUID for SeTcbPrivilege ("Act as part of the TCB").
 	var tcbLuid windows.LUID
-	err = windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeTcbPrivilege"), &tcbLuid)
+	var err error
+	if superpower {
+		err = windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeTcbPrivilege"), &tcbLuid)
+	} else {
+		err = windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeIncreaseQuotaPrivilege"), &tcbLuid)
+	}
 	if err != nil {
 		return fmt.Errorf("LookupPrivilegeValue(SE_TCB_NAME) failed: %w", err)
 	}
@@ -76,7 +74,12 @@ func (runner *DesktopRunner) enablePrivileges() error {
 func (runner *DesktopRunner) Init() error {
 	// Enable the required permissions
 	// This executable must be running as SYSTEM for this code to work.
-	if err := runner.enablePrivileges(); err != nil {
+	processHandle := windows.CurrentProcess()
+	var systemToken windows.Token
+	if err := windows.OpenProcessToken(processHandle, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &systemToken); err != nil {
+		return fmt.Errorf("could not open process token %v", err)
+	}
+	if err := runner.enablePrivileges(systemToken, true); err != nil {
 		return fmt.Errorf("failed to enable necessary privileges: %v", err)
 	}
 
@@ -106,8 +109,9 @@ func (runner *DesktopRunner) getActiveUserToken() windows.Token {
 		_, _, _, err := sid.LookupAccount(sid.String())
 		if err != nil {
 			log.Printf("Could not find account attached to SID: %v", err)
-			return token
 		}
+		return token
+
 	}
 	log.Printf("Detected SYSTEM running Terminal Service")
 	var hSystemToken windows.Token
@@ -173,24 +177,52 @@ func (runner *DesktopRunner) ResetPermissions() error {
 	if err := windows.RevertToSelf(); err != nil {
 		return fmt.Errorf("could not revert to system permissions %v", err)
 	}
-	if err := runner.enablePrivileges(); err != nil {
+	processHandle := windows.CurrentProcess()
+	var systemToken windows.Token
+	if err := windows.OpenProcessToken(processHandle, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &systemToken); err != nil {
+		return fmt.Errorf("could not open token %v", err)
+	}
+	if err := runner.enablePrivileges(systemToken, true); err != nil {
+
 		return fmt.Errorf("could not re-enable desktop permissions %v", err)
 	}
 	return nil
 
 }
 
-func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, error) {
+func (runner *DesktopRunner) ImpersonateRunningUser(hToken windows.Token) error {
+	var dupToken windows.Token
+	err := windows.DuplicateTokenEx(
+		hToken,
+		windows.TOKEN_ALL_ACCESS,
+		nil,
+		windows.SecurityImpersonation,
+		windows.TokenImpersonation,
+		&dupToken,
+	)
+	defer dupToken.Close()
+	if err != nil {
+		return fmt.Errorf("could not duplicate token %v", err)
+	}
+	if err := runner.enablePrivileges(dupToken, false); err != nil {
+		return fmt.Errorf("could not enable new privlleges on impersonated token")
+	}
+	impersonateActiveUser(dupToken)
+
+	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
+	return nil
+}
+
+func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) (string, error) {
 	log.Printf("DEBUG: Searching for active desktop")
-	oldHWinSta, err := getProcessWindowStation()
+	oldHWinSta, err := win32.GetProcessWindowStation()
 	if err != nil {
 		return "", fmt.Errorf("could not store old WindowsStation, %v", err)
 	}
 	log.Printf("DEBUG: Got Old Window Station")
-	defer setProcessWindowStation(oldHWinSta)
+	defer win32.SetProcessWindowStation(oldHWinSta)
 	log.Printf("DEBUG: Deferred Setback")
-
-	hWinSta, err := openWindowStation("WinSta0", false, windows.GENERIC_ALL)
+	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES)
 	// TODO make helper function for this call
 	defer procCloseWindowStation.Call(uintptr(hWinSta))
 	if err != nil {
@@ -198,44 +230,21 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 	}
 	log.Printf("DEBUG: Window Station Opened")
 	// Temporarily set our process's window station to the interactive one.
-	setProcessWindowStation(hWinSta)
+
+	if err := win32.SetProcessWindowStation(win32.Hwinsta(uintptr(hWinSta))); err != nil {
+		return "", fmt.Errorf("could not assign window station to process, %v", err)
+	}
 	log.Printf("DEBUG: Window Station Set")
 
-	/*
-			   DESKTOP_CREATEMENU |
-		                          DESKTOP_CREATEWINDOW |
-		                          DESKTOP_ENUMERATE |
-		                          DESKTOP_HOOKCONTROL |
-		                          DESKTOP_WRITEOBJECTS |
-		                          DESKTOP_READOBJECTS |
-		                          DESKTOP_SWITCHDESKTOP |
-		                          GENERIC_WRITE
-	*/
-	// duplicate token with Security
-	var dupToken windows.Token
-	err = windows.DuplicateTokenEx(
-		hToken,
-		windows.TOKEN_ALL_ACCESS,
-		nil,
-		windows.SecurityDelegation,
-		windows.TokenPrimary,
-		&dupToken,
-	)
-	if err != nil {
-		return "", fmt.Errorf("could not duplicate token %v", err)
+	if !login {
+		if err := runner.ImpersonateRunningUser(hToken); err != nil {
+			return "", fmt.Errorf("could not impersonate %v", err)
+		}
 	}
-	impersonateActiveUser(dupToken)
-
-	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
 	defer runner.ResetPermissions()
-
 	var desktopName string
-	hDesktop, err := wrappers.OpenInputDesktop(0, true,
+	hDesktop, err := wrappers.OpenInputDesktop(0, false,
 		wrappers.DESKTOP_READOBJECTS|
-			windows.READ_CONTROL|
-			wrappers.DESKTOP_SWITCHDESKTOP|
-			wrappers.DESKTOP_HOOKCONTROL|
-			wrappers.DESKTOP_CREATEWINDOW|
 			wrappers.DESKTOP_ENUMERATE,
 	)
 	if err != nil {

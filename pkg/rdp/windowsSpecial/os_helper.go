@@ -99,7 +99,7 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 	var token windows.Token
 	tokenSet := false
 	// idk if this works when the program gets exit signal
-	defer token.Close()
+	//defer token.Close()
 
 	for {
 		if !helper.isRunning {
@@ -116,10 +116,10 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 		if currentUser != lastUser {
 			// TODO add channel to close the token
 			if tokenSet {
-				if err := token.Close(); err != nil {
-					log.Printf("WARNING: Could not close token, reattempting, %v", err)
-					continue
-				}
+				//if err := token.Close(); err != nil {
+				//log.Printf("WARNING: Could not close token, reattempting, %v", err)
+				//continue
+				//}
 			}
 			tokenSet = true
 			token = helper.runner.getActiveUserToken()
@@ -129,7 +129,7 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 			forceRestart = true
 		}
 
-		desktop, err := helper.runner.GetActiveDesktop(token)
+		desktop, err := helper.runner.GetActiveDesktop(token, currentUser == "S-1-5-18")
 		log.Printf("DEBUG: Current Desktop: %s", desktop)
 
 		if err != nil {
