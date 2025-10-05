@@ -119,19 +119,17 @@ func (processor *WindowsStreamProcessor) Start() error {
 
 // Send provides a non-blocking way to send a byte slice to the client.
 func (processor *WindowsStreamProcessor) Send(data []byte) {
-	processor.mu.Lock()
-	defer processor.mu.Unlock()
 
 	if !processor.isStarted {
-		return // Or log a warning: fmt.Println("Warning: Send called on a stopped processor")
+		log.Printf("Send attempted to send to a non-started process, data: %v", data)
+		return
 	}
 
-	// Use a select to prevent blocking if the send channel is full.
 	select {
 	case processor.sendChan <- data:
 	default:
+		log.Printf("WARNING: Channel Buffer fool")
 		// This case is hit if the channel buffer is full.
-		// You could log this event if necessary.
 	}
 }
 

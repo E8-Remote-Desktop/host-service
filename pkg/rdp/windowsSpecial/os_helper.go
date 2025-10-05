@@ -78,6 +78,7 @@ func (helper *WindowsOSHelper) RestartInteractiveServices(desktopName string, to
 	err := helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)}, desktopName, token)
 	if err != nil {
 		log.Printf("ERROR: Could not start Stream and Input Processes with correct permissions, %v", err)
+		return
 	}
 
 	if err := helper.input.Start(); err != nil {
@@ -132,9 +133,9 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 		log.Printf("DEBUG: Current Desktop: %s", desktop)
 
 		if err != nil {
-			log.Printf("WARNING: Could not detect desktop? %v", err)
-			time.Sleep(500 * time.Millisecond)
-			continue
+			//log.Printf("WARNING: Could not detect desktop, reattempting? %v", err)
+			//time.Sleep(500 * time.Millisecond)
+			//continue
 		}
 		if desktop != lastDesktop {
 			log.Printf("DEBUG: Restarting Stream and Input due to Desktop Change")

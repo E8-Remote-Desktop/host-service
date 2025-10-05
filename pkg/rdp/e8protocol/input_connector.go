@@ -37,7 +37,10 @@ func (input *RDPInputConnector) processor(dc *webrtc.DataChannel) {
 		if len(data) == 0 {
 			return
 		}
-		input.inputProcessor.Send(data)
+		// TODO decide whether to keep this
+		if input.inputProcessor.IsStarted() {
+			input.inputProcessor.Send(data)
+		}
 
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/winlabs/gowin32/wrappers"
 	"golang.org/x/sys/windows"
 )
 
@@ -114,6 +115,7 @@ func (runner *DesktopRunner) getActiveUserToken() windows.Token {
 		}
 		defer hSystemToken.Close()
 		log.Printf("DEBUG: Opened Process Token, about to duplicate")
+		// TODO refactor this to not potentially leak a token (maybe close the token here if possible)
 
 		// Duplicate it to create a new primary token.
 		err = windows.DuplicateTokenEx(
@@ -174,6 +176,7 @@ func (runner *DesktopRunner) ResetPermissions() error {
 	return nil
 
 }
+
 func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, error) {
 	log.Printf("DEBUG: Searching for active desktop")
 	oldHWinSta, err := getProcessWindowStation()
@@ -183,10 +186,8 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 	log.Printf("DEBUG: Got Old Window Station")
 	defer setProcessWindowStation(oldHWinSta)
 	log.Printf("DEBUG: Deferred Setback")
-	impersonateActiveUser(hToken)
-	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
-	defer runner.ResetPermissions()
-	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES)
+
+	hWinSta, err := openWindowStation("WinSta0", false, windows.GENERIC_ALL)
 	// TODO make helper function for this call
 	defer procCloseWindowStation.Call(uintptr(hWinSta))
 	if err != nil {
@@ -196,19 +197,68 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 	// Temporarily set our process's window station to the interactive one.
 	setProcessWindowStation(hWinSta)
 	log.Printf("DEBUG: Window Station Set")
+
+	// duplicate token with Security
+	var dupToken windows.Token
+	err = windows.DuplicateTokenEx(
+		hToken,
+		windows.TOKEN_ALL_ACCESS,
+		nil,
+		windows.SecurityDelegation,
+		windows.TokenPrimary,
+		&dupToken,
+	)
+	if err != nil {
+		return "", fmt.Errorf("could not duplicate token %v", err)
+	}
+	impersonateActiveUser(dupToken)
+	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
+	defer runner.ResetPermissions()
 	var desktopName string
-	hDesktop, err := openInputDesktop(0, false, DESKTOP_READOBJECTS)
+	/*
+			   DESKTOP_CREATEMENU |
+		                          DESKTOP_CREATEWINDOW |
+		                          DESKTOP_ENUMERATE |
+		                          DESKTOP_HOOKCONTROL |
+		                          DESKTOP_WRITEOBJECTS |
+		                          DESKTOP_READOBJECTS |
+		                          DESKTOP_SWITCHDESKTOP |
+		                          GENERIC_WRITE
+	*/
+	hDesktop, err := openInputDesktop(0, false,
+		wrappers.DESKTOP_READOBJECTS|
+			windows.READ_CONTROL|
+			wrappers.DESKTOP_SWITCHDESKTOP|
+			wrappers.DESKTOP_HOOKCONTROL|
+			wrappers.DESKTOP_CREATEWINDOW|
+			wrappers.DESKTOP_ENUMERATE,
+	)
 	if err == nil {
 		// again make helper function to make sure this doesn't blow up
 		defer procCloseDesktop.Call(uintptr(hDesktop))
 
 		// Get the desktop's name.
-		desktopName, err = getUserObjectInformation(hDesktop, UOI_NAME)
+		var desktopNameLength uint32
+		if err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(nil)), 0, &desktopNameLength); err != nil {
+			//return "", fmt.Errorf("could not get desktop name length, %v", err)
+			log.Printf("DEBUG: Errors from desktop Length %v", err)
+		}
+		log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
+		if desktopNameLength == 0 {
+			return "", fmt.Errorf("desktop not ready yet, length too short ")
+		}
+
+		desktopNameUTF16 := make([]uint16, 256)
+		var blankuint32 uint32
+
+		err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(&desktopNameUTF16[0])), desktopNameLength, &blankuint32)
+
 		if err != nil {
 			return "", fmt.Errorf("could not get desktop name %v", err)
 		}
+		desktopName = windows.UTF16ToString(desktopNameUTF16)
 	}
-	log.Printf("DEBUG: Found Desktop")
+	log.Printf("DEBUG: Found Desktop, %s", desktopName)
 
 	if desktopName == "" {
 		return "", fmt.Errorf("failed to get active desktop name. Last error: %v", windows.GetLastError())
@@ -222,9 +272,6 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, err
 // Run Process does not own the token it takes, it is up to the parent caller to close the token
 func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string, token windows.Token) error {
 	log.Printf("DEBUG: Running processes for stream and input")
-	if runner.procHandles != nil {
-		return fmt.Errorf("processes were already started, please tear down first")
-	}
 
 	for _, proc := range processes {
 		cmdLine, err := syscall.UTF16FromString(proc)
@@ -260,8 +307,16 @@ func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string
 			continue
 		}
 
-		log.Printf("DEUBG: Launched %q with PID %d", proc, pi.ProcessId)
-		runner.procHandles = append(runner.procHandles, pi.Process)
+		log.Printf("DEBUG: Launched %q with PID %d", proc, pi.ProcessId)
+		if runner.procHandles != nil {
+			for _, handle := range runner.procHandles {
+				windows.CloseHandle(handle)
+			}
+		}
+
+		var procHandles []windows.Handle
+		procHandles = append(procHandles, pi.Process)
+		runner.procHandles = procHandles
 
 		// Clean up handles
 		windows.CloseHandle(pi.Thread)

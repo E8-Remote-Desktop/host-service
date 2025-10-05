@@ -125,7 +125,7 @@ func (processor *WindowsInputProcessor) Send(data []byte) error {
 	defer processor.mu.Unlock()
 
 	if !processor.isStarted {
-		log.Printf("Send attempted to send to a non-started process")
+		log.Printf("Send attempted to send to a non-started process, data: %v", data)
 		return nil
 	}
 
