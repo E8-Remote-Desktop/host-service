@@ -47,7 +47,7 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 
 	// force port
 	rtcSettings := webrtc.SettingEngine{}
-	rtcSettings.SetEphemeralUDPPortRange(50000, 50001)
+	//rtcSettings.SetEphemeralUDPPortRange(50000, 50001)
 
 	rtcMediaEngine := webrtc.MediaEngine{}
 	if err := rtcMediaEngine.RegisterDefaultCodecs(); err != nil {

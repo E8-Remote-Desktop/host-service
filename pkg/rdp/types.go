@@ -37,6 +37,7 @@ type MediaStreamer interface {
 	Start() error
 	Close() error
 	IsStarted() bool
+	YouAreClosedTrustMe()
 }
 
 type Configurator interface {
@@ -51,6 +52,7 @@ type InputProcessor interface {
 	// This will only be called by the RTCInputConnector
 	Close() error
 	IsStarted() bool
+	YouAreClosedTrustMe()
 	//GetCursorPosition() ([]byte, error)
 	//GetCursorVisibility() ([]byte, error)
 }

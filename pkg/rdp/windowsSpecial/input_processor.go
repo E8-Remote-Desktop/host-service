@@ -43,6 +43,11 @@ func (processor *WindowsInputProcessor) Init(config *rdp.StreamConfig) error {
 func (processor *WindowsInputProcessor) IsStarted() bool {
 	return processor.isStarted
 }
+
+func (processor *WindowsInputProcessor) YouAreClosedTrustMe() {
+	// this is for the instance when swithcing user accounts and it force crashes the streamer/input, they are closed
+	processor.isStarted = false
+}
 func (processor *WindowsInputProcessor) Start() error {
 	// TODO: security allow only 1 client on the pipe
 	processor.mu.Lock()
@@ -169,7 +174,7 @@ func (processor *WindowsInputProcessor) Close() error {
 	// this should already be 00
 	case <-processor.closeAckChan:
 		// Acknowledgment received successfully.
-	case <-time.After(10 * time.Second):
+	case <-time.After(500 * time.Millisecond):
 		returnErr = fmt.Errorf("failed to stop input: acknowledgment not received in time")
 	}
 

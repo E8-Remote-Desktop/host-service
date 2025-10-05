@@ -13,12 +13,14 @@ import (
 
 var (
 	user32                        = syscall.NewLazyDLL("user32.dll")
+	advapi32                      = syscall.NewLazyDLL("advapi32.dll")
 	procOpenWindowStationW        = user32.NewProc("OpenWindowStationW")
 	procSetProcessWindowStation   = user32.NewProc("SetProcessWindowStation")
 	procCloseWindowStation        = user32.NewProc("CloseWindowStation")
 	procOpenInputDesktop          = user32.NewProc("OpenInputDesktop")
 	procCloseDesktop              = user32.NewProc("CloseDesktop")
 	procGetUserObjectInformationW = user32.NewProc("GetUserObjectInformationW")
+	procImpersonateLoggedOnUser   = advapi32.NewProc("ImpersonateLoggedOnUser")
 )
 
 const (
@@ -92,6 +94,11 @@ func getProcessWindowStation() (syscall.Handle, error) {
 		return 0, err
 	}
 	return syscall.Handle(ret), nil
+}
+
+// This function will not take token responsiblity, it is up to the calling function to close the token
+func impersonateActiveUser(hToken windows.Token) {
+	procImpersonateLoggedOnUser.Call(uintptr(hToken))
 }
 
 // helper to close desktop

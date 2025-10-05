@@ -72,37 +72,131 @@ func (runner *DesktopRunner) enablePrivileges() error {
 
 	return nil
 }
-
-func (runner *DesktopRunner) RunProcesses(processes []string) error {
-	if runner.procHandles != nil {
-		return fmt.Errorf("processes were already started, please tear down first")
-	}
+func (runner *DesktopRunner) Init() error {
+	// Enable the required permissions
 	// This executable must be running as SYSTEM for this code to work.
 	if err := runner.enablePrivileges(); err != nil {
 		return fmt.Errorf("failed to enable necessary privileges: %v", err)
 	}
 
-	// 1. Get the active console session ID.
+	return nil
+}
+
+// Function consuming this token now owns said token and has to close it
+func (runner *DesktopRunner) getActiveUserToken() windows.Token {
+	forceSystem := false
 	sessionID := windows.WTSGetActiveConsoleSessionId()
 	if sessionID == 0xFFFFFFFF {
 		log.Println("No active console session found.")
-		return fmt.Errorf("could not find desktop")
 	}
-
-	// Get the active desktop.
-	var desktopName string
-	// the api doesn't exist in the windows package or syscall, thank you microsoft for being utterly useless
-	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES)
-	//hWinSta, err := windows.OpenWindowStation("WinSta0", false, windows.WINSTA_READATTRIBUTES)
+	var token windows.Token
+	windows.WTSQueryUserToken(sessionID, &token)
+	user, err := token.GetTokenUser()
 	if err != nil {
-		return fmt.Errorf("could not find window station %v", err)
+		log.Printf("Could not get user attached to token assuming system mode?: %v", err)
+		forceSystem = true
+	}
+	if !forceSystem {
+		sid := user.User.Sid
+		_, _, _, err := sid.LookupAccount(sid.String())
+		if err != nil && !forceSystem {
+			log.Printf("Could not find account attached to SID: %v", err)
+		}
+	}
+	if forceSystem {
+		log.Printf("Detected SYSTEM running Terminal Service")
+		var hSystemToken windows.Token
+		processHandle := windows.CurrentProcess()
+		err = windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
+		if err != nil {
+			log.Printf("OpenProcessToken (SYSTEM) failed: %v", err)
+			return token
+		}
+		defer hSystemToken.Close()
+		log.Printf("DEBUG: Opened Process Token, about to duplicate")
+
+		// Duplicate it to create a new primary token.
+		err = windows.DuplicateTokenEx(
+			hSystemToken,
+			windows.TOKEN_ALL_ACCESS,
+			nil,
+			windows.SecurityImpersonation,
+			windows.TokenPrimary,
+			&token,
+		)
+		if err != nil {
+			log.Printf("DuplicateTokenEx failed: %v", err)
+			return token
+		}
+		//defer token.Close() // don't close so we can use it for later
+
+		// Re-parent the new token to the active user's session.
+		err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
+		if err != nil {
+			log.Printf("Could not grant permissions to system token")
+		}
+		log.Printf("DEBUG: returning active SYSTEM token")
+	}
+	return token
+}
+
+func (runner *DesktopRunner) getCurrentIOSID() (string, error) {
+	sessionID := windows.WTSGetActiveConsoleSessionId()
+	if sessionID == 0xFFFFFFFF {
+		log.Println("No active console session found.")
+		return "", fmt.Errorf("could not find active session")
 	}
 
-	// todo make helper function to make sure this doesn't blow up
-	defer procCloseWindowStation.Call(uintptr(hWinSta))
+	var token windows.Token
+	err := windows.WTSQueryUserToken(sessionID, &token)
+	if err != nil {
+		log.Printf("Could not SID associated with token for desktop, returning SYSTEM sid: %v", err)
+		return "S-1-5-18", nil
+	}
+	user, err := token.GetTokenUser()
+	if err != nil {
+		log.Printf("Could not get user attached to token please contact support: %v", err)
+		return "", err
+	}
+	sid := user.User.Sid
+	return sid.String(), nil
+}
 
+// Get a regular user token, remember you own this token from now on and are responsible for closing it
+
+func (runner *DesktopRunner) ResetPermissions() error {
+	if err := windows.RevertToSelf(); err != nil {
+		return fmt.Errorf("could not revert to system permissions %v", err)
+	}
+	if err := runner.enablePrivileges(); err != nil {
+		return fmt.Errorf("could not re-enable desktop permissions %v", err)
+	}
+	return nil
+
+}
+func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token) (string, error) {
+	log.Printf("DEBUG: Searching for active desktop")
+	oldHWinSta, err := getProcessWindowStation()
+	if err != nil {
+		return "", fmt.Errorf("could not store old WindowsStation, %v", err)
+	}
+	log.Printf("DEBUG: Got Old Window Station")
+	defer setProcessWindowStation(oldHWinSta)
+	log.Printf("DEBUG: Deferred Setback")
+	impersonateActiveUser(hToken)
+	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
+	defer runner.ResetPermissions()
+	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES)
+	// TODO make helper function for this call
+	defer procCloseWindowStation.Call(uintptr(hWinSta))
+	if err != nil {
+		return "", fmt.Errorf("could not find window station %v", err)
+	}
+	log.Printf("DEBUG: Window Station Opened")
 	// Temporarily set our process's window station to the interactive one.
 	setProcessWindowStation(hWinSta)
+	log.Printf("DEBUG: Window Station Set")
+	var desktopName string
 	hDesktop, err := openInputDesktop(0, false, DESKTOP_READOBJECTS)
 	if err == nil {
 		// again make helper function to make sure this doesn't blow up
@@ -111,65 +205,27 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 		// Get the desktop's name.
 		desktopName, err = getUserObjectInformation(hDesktop, UOI_NAME)
 		if err != nil {
-			return fmt.Errorf("could not get desktop name %v", err)
+			return "", fmt.Errorf("could not get desktop name %v", err)
 		}
 	}
+	log.Printf("DEBUG: Found Desktop")
 
 	if desktopName == "" {
-		return fmt.Errorf("failed to get active desktop name. Last error: %v", windows.GetLastError())
+		return "", fmt.Errorf("failed to get active desktop name. Last error: %v", windows.GetLastError())
 	}
 
 	log.Printf("Detected Active Desktop: %s", desktopName)
+	return desktopName, nil
 
-	// get token
-	var token windows.Token
-	//useMaster := (strings.Contains(desktopName, "Default"))
-	//if useMaster {
-	// --- SECURE MODE ---
-	log.Println("Secure Mode detected. Launching with Master Key.")
+}
 
-	// Get the current SYSTEM process token.
-	var hSystemToken windows.Token
-	processHandle := windows.CurrentProcess()
-	err = windows.OpenProcessToken(processHandle, windows.TOKEN_DUPLICATE, &hSystemToken)
-	if err != nil {
-		return fmt.Errorf("OpenProcessToken (SYSTEM) failed: %v", err)
-	}
-	defer hSystemToken.Close()
-
-	// Duplicate it to create a new primary token.
-	err = windows.DuplicateTokenEx(
-		hSystemToken,
-		windows.TOKEN_ALL_ACCESS,
-		nil,
-		windows.SecurityImpersonation,
-		windows.TokenPrimary,
-		&token,
-	)
-	if err != nil {
-		return fmt.Errorf("DuplicateTokenEx failed: %v", err)
-	}
-	defer token.Close()
-
-	// Re-parent the new token to the active user's session.
-	err = windows.SetTokenInformation(token, windows.TokenSessionId, (*byte)(unsafe.Pointer(&sessionID)), uint32(unsafe.Sizeof(sessionID)))
-	if err != nil {
-		return fmt.Errorf("SetTokenInformation failed: %v", err)
+// Run Process does not own the token it takes, it is up to the parent caller to close the token
+func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string, token windows.Token) error {
+	log.Printf("DEBUG: Running processes for stream and input")
+	if runner.procHandles != nil {
+		return fmt.Errorf("processes were already started, please tear down first")
 	}
 
-	//} else {
-	//// --- NORMAL MODE ---
-	//log.Println("Normal Mode detected. Launching with User Token.")
-
-	//// Get the token of the user in the active session.
-	//err := windows.WTSQueryUserToken(sessionID, &token)
-	//if err != nil {
-	//return fmt.Errorf("WTSQueryUserToken failed: %v", err)
-	//}
-	//defer token.Close()
-	//}
-
-	// start processes
 	for _, proc := range processes {
 		cmdLine, err := syscall.UTF16FromString(proc)
 		if err != nil {
@@ -180,7 +236,7 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 		si := &windows.StartupInfo{
 			Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
 		}
-		si.Desktop, _ = syscall.UTF16PtrFromString("winsta0\\default")
+		//si.Desktop, _ = syscall.UTF16PtrFromString("winsta0\\default")
 		//if useMaster {
 		si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
 		//}
@@ -204,7 +260,7 @@ func (runner *DesktopRunner) RunProcesses(processes []string) error {
 			continue
 		}
 
-		log.Printf("Launched %q with PID %d", proc, pi.ProcessId)
+		log.Printf("DEUBG: Launched %q with PID %d", proc, pi.ProcessId)
 		runner.procHandles = append(runner.procHandles, pi.Process)
 
 		// Clean up handles

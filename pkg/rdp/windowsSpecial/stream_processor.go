@@ -42,6 +42,10 @@ func (processor *WindowsStreamProcessor) Init(config *rdp.StreamConfig) error {
 func (processor *WindowsStreamProcessor) IsStarted() bool {
 	return processor.isStarted
 }
+func (processor *WindowsStreamProcessor) YouAreClosedTrustMe() {
+	// this is for the instance when swithcing user accounts and it force crashes the streamer/input, they are closed
+	processor.isStarted = false
+}
 func (processor *WindowsStreamProcessor) Start() error {
 	// TODO: security allow only 1 client on the pipe
 	processor.mu.Lock()
@@ -146,13 +150,14 @@ func (processor *WindowsStreamProcessor) Close() error {
 		processor.mu.Unlock()
 		return nil // Already closed
 	}
+	log.Printf("Sending Close Message to Stream")
 
 	// Create a temporary channel to receive the specific close acknowledgment.
 	processor.closeAckChan = make(chan struct{}, 1)
 	processor.mu.Unlock()
 
-	// Send the shutdown message [0, 3]
-	shutdownMsg := []byte{0, 3}
+	// Send the shutdown message
+	shutdownMsg := []byte("close")
 	_, err := processor.conn.Write(shutdownMsg)
 	if err != nil {
 		// If we can't even write the close message, proceed to force-close.
@@ -160,14 +165,15 @@ func (processor *WindowsStreamProcessor) Close() error {
 		return fmt.Errorf("failed to send close message: %w", err)
 	}
 
-	// Wait for the acknowledgment [0, 0] with a timeout.
+	// Wait for the acknowledgment closeACK with a timeout.
 	var returnErr error
 	select {
 	// this should already be 00
 	case <-processor.closeAckChan:
 		// Acknowledgment received successfully.
-	case <-time.After(10 * time.Second):
-		returnErr = fmt.Errorf("failed to stop input: acknowledgment not received in time")
+	// we can't predict a session change/shutdown before a session change, this scenario allows it to actually cleanup
+	case <-time.After(500 * time.Millisecond):
+		returnErr = fmt.Errorf("failed to stop stream: acknowledgment not received in time")
 	}
 
 	// Regardless of timeout, clean up all resources.
@@ -211,7 +217,7 @@ func (processor *WindowsStreamProcessor) cleanup() {
 func (processor *WindowsStreamProcessor) readLoop() {
 	defer processor.wg.Done()
 	buf := make([]byte, 4096)
-	closeAck := []byte{0, 0}
+	closeAck := []byte("closeACK")
 
 	for {
 		n, err := processor.conn.Read(buf)
