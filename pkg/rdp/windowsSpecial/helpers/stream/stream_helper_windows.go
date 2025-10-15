@@ -4,6 +4,7 @@
 package winStreamHelper
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -20,6 +21,10 @@ import (
 )
 
 const pipeName = `\\.\pipe\e8-stream`
+
+var closeACK = []byte{0, 0}
+var startACK = []byte{0, 1}
+var closeMsg = []byte{0, 3}
 
 type WindowsStreamHelper struct {
 	mainLoop       *glib.MainLoop
@@ -65,8 +70,8 @@ func connectToServer() net.Conn {
 		conn, err = winio.DialPipe(pipeName, &timeout)
 		if err == nil {
 			// Connection successful, send the start message
-			startMessage := []byte{0, 1}
-			if _, writeErr := conn.Write(startMessage); writeErr != nil {
+
+			if _, writeErr := conn.Write(startACK); writeErr != nil {
 				log.Fatalf("Failed to send start message: %v", writeErr)
 			}
 			log.Println("Sent start message [0, 1] to server.")
@@ -86,7 +91,7 @@ func (streamer *WindowsStreamHelper) listenForCommands(conn net.Conn) bool {
 		}
 		return false // Stop on error or EOF
 	}
-	msg := string(buf[:n])
+	msg := buf[:n]
 
 	if n > 0 {
 		// Pass the slice and check if the processor received a close command
@@ -96,22 +101,12 @@ func (streamer *WindowsStreamHelper) listenForCommands(conn net.Conn) bool {
 	return true
 }
 
-func (streamer *WindowsStreamHelper) msgProcessor(conn net.Conn, msg string) bool {
-	switch msg {
-	//case "start":
-	//// temp until the client-side settings
-	//configurator := &windowsspecial.WindowsConfigurator{}
-	//config, err := configurator.GetConfig()
-	//if err != nil {
-	//log.Fatalf("could not load config in helper %v", err)
-	//}
-	//streamer.StartStreaming(config)
-	case "close":
+func (streamer *WindowsStreamHelper) msgProcessor(conn net.Conn, msg []byte) bool {
+	if bytes.Equal(msg, closeMsg) {
 
 		// Send the close acknowledgment [0, 0] back to the server
 		log.Println("Close request received. Sending acknowledgment.")
-		ack := "closeACK"
-		if _, err := conn.Write([]byte(ack)); err != nil {
+		if _, err := conn.Write(closeACK); err != nil {
 			log.Printf("Failed to send close acknowledgment: %v", err)
 		}
 		// close handled in defer in main

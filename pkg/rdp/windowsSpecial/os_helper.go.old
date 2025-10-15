@@ -1,0 +1,144 @@
+import (
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
+	"golang.org/x/sys/windows"
+)
+
+type WindowsOSHelper struct {
+	input     rdp.InputProcessor
+	streamer  rdp.MediaStreamer
+	exePath   string
+	runner    *DesktopRunner
+	isRunning bool
+}
+
+func (helper *WindowsOSHelper) Init(input rdp.InputProcessor, streamer rdp.MediaStreamer) error {
+	helper.input = input
+	helper.streamer = streamer
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	exePath, err = filepath.Abs(exePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	helper.exePath = exePath
+	helper.runner = &DesktopRunner{}
+	if err := helper.runner.Init(); err != nil {
+		log.Fatalf("Could not init the windows OS connector %v", err)
+	}
+	return nil
+
+}
+
+func (helper *WindowsOSHelper) StartStreamAndInput() error {
+	helper.isRunning = true
+	go helper.MonitorDesktops()
+	return nil
+
+}
+
+func (helper *WindowsOSHelper) Close() error {
+	helper.isRunning = false
+	helper.input.Close()
+	helper.streamer.Close()
+	return nil
+}
+
+func (helper *WindowsOSHelper) RestartInteractiveServices(desktopName string, token windows.Token, login bool) {
+
+	// we should only need to check input (right?)
+	log.Printf("DEBUG: Restarting on new desktop")
+	if err := helper.input.Close(); err != nil {
+		log.Printf("ERROR: FAILED TO RESTART INPUT: %v; this is expected when switching users", err)
+		helper.input.YouAreClosedTrustMe()
+	}
+	if err := helper.streamer.Close(); err != nil {
+		log.Printf("WARNING: FAILED TO RESTART VIDEO/STREAMER: %v; this is expected when switching users", err)
+		helper.streamer.YouAreClosedTrustMe()
+	}
+	// Start helpers
+	err := helper.runner.RunProcesses([]string{fmt.Sprintf("%s -inputhelper", helper.exePath), fmt.Sprintf("%s -streamhelper", helper.exePath)}, desktopName, token, login)
+	if err != nil {
+		log.Printf("ERROR: Could not start Stream and Input Processes with correct permissions, %v", err)
+		return
+	}
+	log.Printf("DEBUG: Requesting data start for the helpers")
+
+	if err := helper.input.Start(); err != nil {
+		log.Printf("ERROR: Could not start Input connector: %v", err)
+	}
+	log.Printf("DEBUG: Request for start sent to  Input Handler")
+	if err := helper.streamer.Start(); err != nil {
+		log.Printf("ERROR: Could not start Stream connector: %v", err)
+	}
+	log.Printf("DEBUG: Request for start sent to stream handler")
+
+}
+
+// monitorDesktops loops every 50ms and prints the active desktop name when it changes
+func (helper *WindowsOSHelper) MonitorDesktops() {
+	// will be set on first run
+	lastUser := ""
+	lastDesktop := ""
+	forceRestart := false
+	var token windows.Token
+	tokenSet := false
+	// idk if this works when the program gets exit signal
+	//defer token.Close()
+
+	for {
+		if !helper.isRunning {
+			log.Printf("DEBUG: Shutting down because we are not supposed to be running")
+			return
+		}
+		log.Printf("Checking desktops")
+		currentUser, err := helper.runner.getCurrentIOSID()
+		if err != nil {
+			log.Printf("WARNING: Could not get current user, reattempting")
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if currentUser != lastUser {
+			// TODO add channel to close the token
+			if tokenSet {
+				//if err := token.Close(); err != nil {
+				//log.Printf("WARNING: Could not close token, reattempting, %v", err)
+				//continue
+				//}
+			}
+			tokenSet = true
+			token = helper.runner.getActiveUserToken()
+			log.Printf("DEBUG: Switched to new token for execution")
+			lastUser = currentUser
+			log.Printf("DEBUG: Restarting Stream and Input due to Token Change")
+			forceRestart = true
+		}
+
+		desktop, err := helper.runner.GetActiveDesktop(token, currentUser == "S-1-5-18")
+		log.Printf("DEBUG: Current Desktop: %s", desktop)
+
+		if err != nil {
+			log.Printf("WARNING: Could not detect desktop, reattempting? %v", err)
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+		if desktop != lastDesktop {
+			log.Printf("DEBUG: Restarting Stream and Input due to Desktop Change")
+			lastDesktop = desktop
+			forceRestart = true
+		}
+
+		if forceRestart {
+			helper.RestartInteractiveServices(lastDesktop, token, currentUser == "S-1-5-18")
+			forceRestart = false
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}

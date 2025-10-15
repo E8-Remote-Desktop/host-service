@@ -51,15 +51,20 @@ func (processor *WindowsStreamProcessor) Start() error {
 	processor.mu.Lock()
 	if processor.isStarted {
 		processor.mu.Unlock()
-		return fmt.Errorf("an input processor is still running")
+		return fmt.Errorf("a stream processor is still running")
 	}
+	// TODO FIXME THIS ALLOWS EVERYONE
+	sddl := "D:P(A;;GA;;;WD)(A;;GA;;;AN)"
 
+	pipeConfig := &winio.PipeConfig{
+		SecurityDescriptor: sddl,
+	}
 	// Initialize channels and state for this session
 	processor.sendChan = make(chan []byte, 100) // Buffered for non-blocking sends
 	processor.recvChan = make(chan []byte, 100)
 	processor.quitChan = make(chan struct{})
 
-	listener, err := winio.ListenPipe(pipeNameStream, nil)
+	listener, err := winio.ListenPipe(pipeNameStream, pipeConfig)
 	if err != nil {
 		processor.mu.Unlock()
 		return fmt.Errorf("failed to listen on named pipe: %w", err)

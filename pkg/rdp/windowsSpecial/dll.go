@@ -26,14 +26,18 @@ var (
 const (
 	// thank microsoft for not putting these in the go package, maybe I should've done this in C++
 	// from	config.os, ok = ini.SectionGet("OS", "os")
-	UOI_NAME            = 2 // string?
-	WINSTA_ENUMDESKTOPS = 0x0001
-	WINSTA_ENUMERATE    = 0x0100
-	WINSTA_READSCREEN   = 0x0200
-	DESKTOP_READOBJECTS = 0x0001
-
-	// WINSTA_READATTRIBUTES is a combination of the above and standard rights.
-	WINSTA_READATTRIBUTES = windows.STANDARD_RIGHTS_READ | WINSTA_ENUMDESKTOPS | WINSTA_ENUMERATE | WINSTA_READSCREEN
+	UOI_NAME                 = 2 // string?
+	WINSTA_ENUMDESKTOPS      = 0x0001
+	WINSTA_ENUMERATE         = 0x0100
+	WINSTA_READSCREEN        = 0x0200
+	DESKTOP_READOBJECTS      = 0x0001
+	WINSTA_ALL_ACCESS        = 0x37F
+	WINSTA_READATTRIBUTES    = 0x0002
+	WINSTA_CREATEDESKTOP     = 0x0008
+	WINSTA_EXITWINDOWS       = 0x0040
+	WINSTA_WRITE_ATTRIBUTES  = 0x0010
+	WINSTA_ACCESSCLIPBOARD   = 0x0004
+	WINSTA_ACCESSGLOBALATOMS = 0x0020
 )
 
 func openWindowStation(name string, inherit bool, desiredAccess uint32) (syscall.Handle, error) {

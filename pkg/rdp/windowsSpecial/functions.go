@@ -91,7 +91,7 @@ func (runner *DesktopRunner) getActiveUserToken() windows.Token {
 	forceSystem := false
 	sessionID := windows.WTSGetActiveConsoleSessionId()
 	if sessionID == 0xFFFFFFFF {
-		log.Println("No active console session found.")
+		log.Println("ERROR: No active console session found.")
 	}
 	var token windows.Token
 	//var blankToken windows.Token
@@ -101,14 +101,14 @@ func (runner *DesktopRunner) getActiveUserToken() windows.Token {
 	}
 	user, err := token.GetTokenUser()
 	if err != nil {
-		log.Printf("Could not get user attached to token assuming system mode?: %v", err)
+		log.Printf("WARNING: Could not get user attached to token assuming system mode?: %v", err)
 		forceSystem = true
 	}
 	if !forceSystem {
 		sid := user.User.Sid
 		_, _, _, err := sid.LookupAccount(sid.String())
 		if err != nil {
-			log.Printf("Could not find account attached to SID: %v", err)
+			log.Printf("WARNING: Could not find account attached to SID: %v", err)
 		}
 		return token
 
@@ -190,39 +190,42 @@ func (runner *DesktopRunner) ResetPermissions() error {
 
 }
 
-func (runner *DesktopRunner) ImpersonateRunningUser(hToken windows.Token) error {
-	var dupToken windows.Token
-	err := windows.DuplicateTokenEx(
-		hToken,
-		windows.TOKEN_ALL_ACCESS,
-		nil,
-		windows.SecurityImpersonation,
-		windows.TokenImpersonation,
-		&dupToken,
-	)
-	defer dupToken.Close()
-	if err != nil {
-		return fmt.Errorf("could not duplicate token %v", err)
-	}
-	if err := runner.enablePrivileges(dupToken, false); err != nil {
-		return fmt.Errorf("could not enable new privlleges on impersonated token")
-	}
-	impersonateActiveUser(dupToken)
+func (runner *DesktopRunner) ImpersonateRunningUser(fToken windows.Token) error {
+	//var dupToken windows.Token
+	//hToken := runner.getActiveUserToken()
+	//err := windows.DuplicateTokenEx(
+	//hToken,
+	//windows.TOKEN_ALL_ACCESS,
+	//nil,
+	//windows.SecurityImpersonation,
+	//windows.TokenImpersonation,
+	//&dupToken,
+	//)
+	//defer dupToken.Close()
+	//if err != nil {
+	//return fmt.Errorf("could not duplicate token %v", err)
+	//}
+	//if err := runner.enablePrivileges(dupToken, false); err != nil {
+	//return fmt.Errorf("could not enable new privlleges on impersonated token")
+	//}
+	//impersonateActiveUser(dupToken)
+	impersonateActiveUser(fToken)
 
 	log.Printf("DEBUG: Impersonate User Called (this cannot return an error so assume sucess)")
 	return nil
 }
 
 func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) (string, error) {
+
 	log.Printf("DEBUG: Searching for active desktop")
-	oldHWinSta, err := win32.GetProcessWindowStation()
-	if err != nil {
-		return "", fmt.Errorf("could not store old WindowsStation, %v", err)
-	}
-	log.Printf("DEBUG: Got Old Window Station")
-	defer win32.SetProcessWindowStation(oldHWinSta)
-	log.Printf("DEBUG: Deferred Setback")
-	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES)
+	//oldHWinSta, err := win32.GetProcessWindowStation()
+	//if err != nil {
+	//return "", fmt.Errorf("could not store old WindowsStation, %v", err)
+	//}
+	//log.Printf("DEBUG: Got Old Window Station")
+	//defer win32.SetProcessWindowStation(oldHWinSta)
+	//log.Printf("DEBUG: Deferred Setback")
+	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES|WINSTA_ENUMDESKTOPS|WINSTA_READSCREEN|WINSTA_ENUMERATE|WINSTA_WRITE_ATTRIBUTES|WINSTA_ACCESSCLIPBOARD|WINSTA_ACCESSGLOBALATOMS|WINSTA_CREATEDESKTOP|WINSTA_EXITWINDOWS)
 	// TODO make helper function for this call
 	defer procCloseWindowStation.Call(uintptr(hWinSta))
 	if err != nil {
@@ -236,20 +239,16 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 	}
 	log.Printf("DEBUG: Window Station Set")
 
-	if !login {
-		if err := runner.ImpersonateRunningUser(hToken); err != nil {
-			return "", fmt.Errorf("could not impersonate %v", err)
-		}
-	}
-	defer runner.ResetPermissions()
 	var desktopName string
 	hDesktop, err := wrappers.OpenInputDesktop(0, false,
-		wrappers.DESKTOP_READOBJECTS|
-			wrappers.DESKTOP_ENUMERATE,
-	)
+		DESKTOP_READOBJECTS)
 	if err != nil {
 		log.Printf("ERROR: Could not open desktop %v", err)
 		return "", fmt.Errorf("could not open desktop because of %v", err)
+	}
+	if err := win32.SetThreadDesktop(win32.Hdesk(hDesktop)); err != nil {
+		log.Printf("ERROR: Could not set thread  to running desktop")
+		return "", fmt.Errorf("could not set thread to input desktop")
 	}
 	// again make helper function to make sure this doesn't blow up
 	defer procCloseDesktop.Call(uintptr(hDesktop))
@@ -258,6 +257,7 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 	var desktopNameLength uint32
 	if err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(nil)), 0, &desktopNameLength); err != nil {
 		//return "", fmt.Errorf("could not get desktop name length, %v", err)
+		// this okay because it always says it could not get the length when it does
 		log.Printf("DEBUG: Errors from desktop Length %v", err)
 	}
 	log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
@@ -286,7 +286,7 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 }
 
 // Run Process does not own the token it takes, it is up to the parent caller to close the token
-func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string, token windows.Token) error {
+func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string, token windows.Token, login bool) error {
 	log.Printf("DEBUG: Running processes for stream and input")
 
 	for _, proc := range processes {
@@ -299,9 +299,9 @@ func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string
 		si := &windows.StartupInfo{
 			Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
 		}
+		//si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
+		//if !login {
 		//si.Desktop, _ = syscall.UTF16PtrFromString("winsta0\\default")
-		//if useMaster {
-		si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
 		//}
 
 		var pi windows.ProcessInformation
@@ -319,22 +319,22 @@ func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string
 			&pi,
 		)
 		if err != nil {
-			log.Printf("CreateProcessAsUser failed for %q: %v", proc, err)
-			continue
+			return fmt.Errorf("CreateProcessAsUser failed for %q: %v", proc, err)
 		}
 
-		log.Printf("DEBUG: Launched %q with PID %d", proc, pi.ProcessId)
-		if runner.procHandles != nil {
-			for _, handle := range runner.procHandles {
-				windows.CloseHandle(handle)
-			}
-		}
+		//log.Printf("DEBUG: Launched %q with PID %d", proc, pi.ProcessId)
+		//if runner.procHandles != nil {
+		//for _, handle := range runner.procHandles {
+		//windows.CloseHandle(handle)
+		//}
+		//}
 
-		var procHandles []windows.Handle
-		procHandles = append(procHandles, pi.Process)
-		runner.procHandles = procHandles
+		//var procHandles []windows.Handle
+		//procHandles = append(procHandles, pi.Process)
+		//runner.procHandles = procHandles
 
 		// Clean up handles
+		windows.CloseHandle(pi.Process)
 		windows.CloseHandle(pi.Thread)
 	}
 
