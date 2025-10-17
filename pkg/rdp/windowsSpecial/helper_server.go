@@ -195,8 +195,8 @@ func (pipeController *WindowsNamedPipeCommunicator) Close() error {
 	// this should already be 00
 	case <-pipeController.closeAckChan:
 		// Acknowledgment received successfully.
-	case <-time.After(500 * time.Millisecond):
-		returnErr = fmt.Errorf("failed to stop input: acknowledgment not received in time")
+	case <-time.After(1 * time.Second):
+		returnErr = fmt.Errorf("failed to stop %s: acknowledgment not received in time", pipeController.GenericName)
 	}
 
 	// Regardless of timeout, clean up all resources.

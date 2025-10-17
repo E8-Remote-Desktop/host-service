@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/e8-remote-desktop/host-service/pkg/rdp"
@@ -123,7 +124,7 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 	//defer token.Close()
 
 	for {
-		log.Printf("DEBUG: Checking Desktops")
+		//log.Printf("DEBUG: Checking if we are currently displaying the right content")
 		if !helper.isRunning {
 			log.Printf("DEBUG: Shutting down because we are not supposed to be running")
 			helper.desktopMonitor.Close()
@@ -131,8 +132,16 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 		}
 		select {
 		case msg := <-helper.desktopMonitor.GetRecieveChannel():
-			fmt.Printf("DEBUG: Got Desktop Change notification")
-			fmt.Printf("DEBUG: Changing to desktop: %s", msg)
+			//todo replace with switch
+			if strings.Contains(string(msg), "restart-request") {
+				log.Printf("DEBUG: Desktop Monitor Requested we restart it, obliging")
+				helper.RestartDesktopMonitor(token)
+				token.Close()
+				continue
+			}
+			// desktop-change otherwise
+			log.Printf("DEBUG: Got Desktop Change notification")
+			log.Printf("DEBUG: Changing to desktop: %s", msg)
 			log.Printf("DEBUG: Getting active user token")
 			token = helper.runner.getActiveUserToken()
 
@@ -146,6 +155,7 @@ func (helper *WindowsOSHelper) MonitorDesktops() {
 			helper.RestartInteractiveServices(token)
 			token.Close()
 		default:
+			//log.Printf("DEBUG: Checking if user account is current")
 			currentUser, err := helper.runner.getCurrentIOSID()
 			if err != nil {
 				log.Printf("WARNING Could not get current user, reattempting")

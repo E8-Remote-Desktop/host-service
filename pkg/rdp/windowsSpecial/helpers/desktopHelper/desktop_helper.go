@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -21,7 +22,7 @@ type WindowsDesktopPoller struct {
 
 func (desktopPoller *WindowsDesktopPoller) poller() {
 	for {
-		log.Printf("DEBUG: Polling for desktop change")
+		//log.Printf("DEBUG: Polling for desktop change")
 		if !desktopPoller.running {
 			log.Printf("DEBUG: closing because not running anymore")
 			return
@@ -29,6 +30,15 @@ func (desktopPoller *WindowsDesktopPoller) poller() {
 		var desktopName string
 		hDesktop, err := wrappers.OpenInputDesktop(0, false,
 			windowsspecial.DESKTOP_READOBJECTS)
+		if strings.Contains(err.Error(), "Access is denied") {
+			// we should restart
+			log.Printf("INFO: Requesting Restart Because We Don't Have The Permission to View the Desktop")
+			if _, err := desktopPoller.conn.Write([]byte(fmt.Sprintf("%s, %s", "restart-request: ", err.Error()))); err != nil {
+				log.Printf("ERROR: Could not write to connection, reattempting")
+			}
+			return
+
+		}
 		if err != nil {
 			log.Printf("ERROR: Could not open desktop %v", err)
 			continue
@@ -40,7 +50,7 @@ func (desktopPoller *WindowsDesktopPoller) poller() {
 		if err := wrappers.GetUserObjectInformation(hDesktop, windowsspecial.UOI_NAME, uintptr(unsafe.Pointer(nil)), 0, &desktopNameLength); err != nil {
 			log.Printf("DEBUG: Errors from desktop Length %v", err)
 		}
-		log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
+		//log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
 		if desktopNameLength == 0 {
 			log.Printf("WARNING: DESKTOP LENGTH 0 RE-ATTEMPTING")
 			continue
@@ -62,15 +72,17 @@ func (desktopPoller *WindowsDesktopPoller) poller() {
 			continue
 		}
 		desktopName = windows.UTF16ToString(desktopNameUTF16)
-		log.Printf("DEBUG: Found Desktop, %s", desktopName)
 		if desktopName != desktopPoller.currentDesktop {
+			log.Printf("DEBUG: Desktop Changed, %s", desktopName)
 			if _, err := desktopPoller.conn.Write([]byte(fmt.Sprintf("%s, %s", "desktop-change: ", desktopName))); err != nil {
-				log.Printf("ERROR: Could not write to connection")
+				log.Printf("ERROR: Could not write to connection, reattempting")
+				continue
 			}
+			desktopPoller.currentDesktop = desktopName
 
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 	}
 
 }

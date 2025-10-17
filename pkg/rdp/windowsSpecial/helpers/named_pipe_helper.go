@@ -66,7 +66,7 @@ func (client *WindowsHelperNamedPipedClient) connectToCommunicator() net.Conn {
 	var err error
 	for {
 		// We want rapid restarts until we can connect
-		timeout := 50 * time.Millisecond
+		timeout := 100 * time.Millisecond
 		conn, err = winio.DialPipe(client.pipeName, &timeout)
 		if err == nil {
 			// Connection successful, send the start message
