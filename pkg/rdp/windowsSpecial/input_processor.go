@@ -9,6 +9,7 @@ type WindowsInputProcessor struct {
 
 func (processor *WindowsInputProcessor) Init(config *rdp.StreamConfig) error {
 	processor.pipeHandler = &WindowsNamedPipeCommunicator{GenericName: "input"}
+	processor.pipeHandler.Init()
 	return nil
 }
 func (processor *WindowsInputProcessor) Start() error {
@@ -24,12 +25,13 @@ func (processor *WindowsInputProcessor) Send(data []byte) error {
 	return processor.pipeHandler.Send(data)
 }
 func (processor *WindowsInputProcessor) Close() error {
+	processor.isStarted = false
 	return processor.pipeHandler.Close()
 }
 func (processor *WindowsInputProcessor) IsStarted() bool {
 	return processor.isStarted
 }
 
-func (processor *WindowsInputProcessor) ForceClose() {
+func (processor *WindowsInputProcessor) YouAreClosedTrustMe() {
 	processor.isStarted = false
 }

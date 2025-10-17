@@ -246,10 +246,10 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 		log.Printf("ERROR: Could not open desktop %v", err)
 		return "", fmt.Errorf("could not open desktop because of %v", err)
 	}
-	if err := win32.SetThreadDesktop(win32.Hdesk(hDesktop)); err != nil {
-		log.Printf("ERROR: Could not set thread  to running desktop")
-		return "", fmt.Errorf("could not set thread to input desktop")
-	}
+	//if err := win32.SetThreadDesktop(win32.Hdesk(hDesktop)); err != nil {
+	//log.Printf("ERROR: Could not set thread  to running desktop")
+	//return "", fmt.Errorf("could not set thread to input desktop")
+	//}
 	// again make helper function to make sure this doesn't blow up
 	defer procCloseDesktop.Call(uintptr(hDesktop))
 
@@ -286,7 +286,7 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 }
 
 // Run Process does not own the token it takes, it is up to the parent caller to close the token
-func (runner *DesktopRunner) RunProcesses(processes []string, desktopName string, token windows.Token, login bool) error {
+func (runner *DesktopRunner) RunProcesses(processes []string, token windows.Token) error {
 	log.Printf("DEBUG: Running processes for stream and input")
 
 	for _, proc := range processes {

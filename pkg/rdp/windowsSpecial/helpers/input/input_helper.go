@@ -5,45 +5,19 @@ package winInputHelper
 
 import (
 	"encoding/binary"
-	"io"
 	"log"
 	"net"
-	"time"
 	"unsafe"
 
-	"github.com/Microsoft/go-winio"
+	"github.com/e8-remote-desktop/host-service/pkg/rdp"
 	"github.com/go-vgo/robotgo"
 	"github.com/stephen-fox/user32util"
 )
 
-const pipeName = `\\.\pipe\e8-input`
-
-func Main() {
-
-	log.Println("Starting input handler client...")
-	helper := &WindowsInputHelper{}
-	conn := connectToServer() // This function will handle connection and retries
-	defer conn.Close()
-
-	helper.Init()
-	defer helper.Close()
-
-	log.Println("Client connected and listening for commands.")
-
-	// This loop reads from the pipe and processes commands until the connection closes
-	for {
-		if !helper.listenForCommands(conn) {
-			break
-		}
-	}
-
-	log.Println("Connection closed. Client shutting down.")
-}
-
 type WindowsInputHelper struct {
-	lastButtons byte
 	pressedKeys map[uint16]bool
 	dll         *user32util.User32DLL
+	conn        net.Conn
 }
 
 const (
@@ -154,52 +128,27 @@ const (
 	SC_APPS  = 0xE05D // Menu key (extended)
 )
 
-func connectToServer() net.Conn {
-	var conn net.Conn
+func (input *WindowsInputHelper) Start(config *rdp.StreamConfig) error {
+	// TODO find better way to log this
 	var err error
-	for {
-		// We want rapid restarts until we can connect
-		timeout := 50 * time.Millisecond
-		conn, err = winio.DialPipe(pipeName, &timeout)
-		if err == nil {
-			// Connection successful, send the start message
-			startMessage := []byte{0, 1}
-			if _, writeErr := conn.Write(startMessage); writeErr != nil {
-				log.Fatalf("Failed to send start message: %v", writeErr)
-			}
-			log.Println("Sent start message [0, 1] to server.")
-			return conn
-		}
-		log.Printf("Failed to connect to server: %v. Retrying in 100 ms...", err)
-	}
-}
-
-func (input *WindowsInputHelper) listenForCommands(conn net.Conn) bool {
-	// Buffer to read data from the pipe
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
+	input.dll, err = user32util.LoadUser32DLL()
 	if err != nil {
-		if err != io.EOF {
-			log.Printf("Pipe read error: %v", err)
-		}
-		return false // Stop on error or EOF
+		log.Printf("ERROR: Could not initalize input %v", err)
+		return err
 	}
-
-	if n > 0 {
-		// Pass the slice and check if the processor received a close command
-		return input.dataProcessor(conn, buf[:n])
-	}
-
-	return true
+	input.pressedKeys = make(map[uint16]bool)
+	log.Println("Windows Input handler initialized")
+	return nil
 }
 
-func (input *WindowsInputHelper) Close() {
+func (input *WindowsInputHelper) Close() error {
 	for key, value := range input.pressedKeys {
 		if value {
 			SendKeyboardInput(input.dll, key, false)
 		}
 	}
 	input.pressedKeys = make(map[uint16]bool)
+	return nil
 }
 
 func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
@@ -229,35 +178,12 @@ func SendKeyboardInput(dll *user32util.User32DLL, sc uint16, keyDown bool) {
 	}
 }
 
-func (input *WindowsInputHelper) Init() {
-	// TODO find better way to log this
-	var err error
-	input.dll, err = user32util.LoadUser32DLL()
-	if err != nil {
-		log.Printf("Could not initalize input")
-	}
-	input.pressedKeys = make(map[uint16]bool)
-	log.Println("Windows Input handler initialized")
-}
-
-func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool {
+func (input *WindowsInputHelper) MsgProcessor(data []byte) {
 	switch data[0] {
-	case 0: // State Change
-		if len(data) > 1 && data[1] == 3 {
-
-			// Send the close acknowledgment [0, 0] back to the server
-			log.Println("Close request received. Sending acknowledgment.")
-			ack := []byte{0, 0}
-			if _, err := conn.Write(ack); err != nil {
-				log.Printf("Failed to send close acknowledgment: %v", err)
-			}
-			// close handled in defer in main
-			return false
-		}
 	case 1: // Keyboard Event
 		if len(data) < 5 {
 			log.Println("Invalid keyboard packet")
-			return true
+			return
 		}
 		keyCode := binary.BigEndian.Uint16(data[1:3])
 		keyDown := data[4] == 1
@@ -265,12 +191,12 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 		sc, ok := scMap[keyCode]
 		if !ok {
 			log.Printf("Unknown key code: %d\n", keyCode)
-			return true
+			return
 		}
 
 		// Check if state already matches
 		if !input.pressedKeys[sc] && !keyDown {
-			return true // already pressed or already released, skip
+			return // already pressed or already released, skip
 		}
 
 		// Send main key event
@@ -280,7 +206,7 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 	case 2: // Mouse Move
 		if len(data) < 6 {
 			log.Println("Invalid mouse move packet")
-			return true
+			return
 		}
 		dx := int16(binary.BigEndian.Uint16(data[2:4]))
 		dy := int16(binary.BigEndian.Uint16(data[4:6]))
@@ -305,7 +231,7 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 	case 3: // Mouse Button Event
 		if len(data) < 3 {
 			log.Println("Invalid mouse button packet")
-			return true
+			return
 		}
 		button := data[1]
 		action := data[2] // 1 = down, 0 = up
@@ -315,22 +241,23 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 		case 0:
 			btnName = "left"
 		case 1:
-			btnName = "middle"
+			btnName = "center"
 		case 2:
 			btnName = "right"
 		default:
 			log.Printf("Unknown mouse button: %d\n", button)
-			return true
+			return
 		}
 
 		var direction string
-		if action == 1 {
+		switch action {
+		case 1:
 			direction = "down"
-		} else if action == 0 {
+		case 0:
 			direction = "up"
-		} else {
+		default:
 			log.Printf("Unknown mouse button action: %d\n", action)
-			return true
+			return
 		}
 
 		if err := robotgo.Toggle(btnName, direction); err != nil {
@@ -339,7 +266,7 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 	case 4: // Scroll Event
 		if len(data) < 4 {
 			log.Println("Invalid scroll packet")
-			return true
+			return
 		}
 		// robotgo scroll direction is inverted compared to many systems.
 		// Positive deltaY usually means scrolling down, which for robotgo is "up".
@@ -354,9 +281,8 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 
 	default:
 		log.Printf("Unknown input event type: %d", data[0])
-		return true
+		return
 	}
-	return true
 }
 
 // handleMouseButtons processes mouse button press and release events.
@@ -394,3 +320,8 @@ func (input *WindowsInputHelper) dataProcessor(conn net.Conn, data []byte) bool 
 
 //input.lastButtons = buttons
 //}
+
+func (input *WindowsInputHelper) RegisterMsgSender(conn net.Conn) {
+	input.conn = conn
+
+}

@@ -16,7 +16,7 @@ import (
 // pipeNameInput is the static name for the Windows named pipe.
 
 type WindowsCommunicator interface {
-	Init(string) error
+	Init() error
 	Send([]byte) error
 	Recieve() <-chan []byte
 	Close() error
@@ -45,11 +45,11 @@ func (pipeController *WindowsNamedPipeCommunicator) GetGenericName() string {
 	return pipeController.GenericName
 }
 
-func (pipeController *WindowsNamedPipeCommunicator) Init(genericName string) error {
-	if strings.Contains(genericName, " ") {
+func (pipeController *WindowsNamedPipeCommunicator) Init() error {
+	if strings.Contains(pipeController.GenericName, " ") {
 		return fmt.Errorf("name not allowed to have spaces")
 	}
-	pipeController.pipeName = fmt.Sprintf(`\\.\pipe\e8-%s`, genericName)
+	pipeController.pipeName = fmt.Sprintf(`\\.\pipe\e8-%s`, pipeController.GenericName)
 	return nil
 }
 
@@ -85,7 +85,7 @@ func (pipeController *WindowsNamedPipeCommunicator) Start() error {
 	listener, err := winio.ListenPipe(pipeController.pipeName, pipeConfig)
 	if err != nil {
 		pipeController.mu.Unlock()
-		return fmt.Errorf("failed to listen on named pipe: %w", err)
+		return fmt.Errorf("failed to listen on named pipe: %v", err)
 	}
 	pipeController.listener = listener
 	pipeController.mu.Unlock()

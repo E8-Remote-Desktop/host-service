@@ -61,12 +61,18 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 	if err != nil {
 		log.Fatalf("Could not read config")
 	}
+	if err := streamProcessor.Init(configOptions); err != nil {
+		log.Fatalf("Could not init stream processor, %v", err)
+	}
+	if err := inputProcessor.Init(configOptions); err != nil {
+		log.Fatalf("Could not init input processor, %v", err)
+	}
 	rtcInitalizer.captureStream.Init(configOptions)
 	if err := rtcInitalizer.input.Init(inputProcessor); err != nil {
-		log.Fatalf("Could not init input %v\n", err)
+		log.Fatalf("Could not init input connector %v\n", err)
 	}
 	if err := rtcInitalizer.oshelper.Init(inputProcessor, streamProcessor); err != nil {
-		log.Fatalf("Could not init the oshelper")
+		log.Fatalf("Could not init the oshelper %v", err)
 	}
 
 	// Create the peer connection
@@ -159,6 +165,7 @@ func (rtcInitalizer *RDPWebRTCConnect) Start() {
 			}
 
 			// Attach media channel
+			log.Printf("Starting media and input streams")
 			rtcInitalizer.oshelper.StartStreamAndInput()
 			log.Printf("Media-Stream and Input Started")
 
