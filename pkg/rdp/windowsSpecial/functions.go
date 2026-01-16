@@ -224,7 +224,16 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 	//}
 	//log.Printf("DEBUG: Got Old Window Station")
 	//defer win32.SetProcessWindowStation(oldHWinSta)
-	//log.Printf("DEBUG: Deferred Setback")
+	//log.Printf("DEBUG: Deferred Setback")s
+	if err := runner.ImpersonateRunningUser(hToken); err != nil {
+		log.Printf("WARNING: Could not impersonate user for desktop check! Assuming winsta default")
+		return "Winsta0\\Default", err
+	}
+
+	defer func() {
+		windows.RevertToSelf()
+	}()
+
 	hWinSta, err := openWindowStation("WinSta0", false, WINSTA_READATTRIBUTES|WINSTA_ENUMDESKTOPS|WINSTA_READSCREEN|WINSTA_ENUMERATE|WINSTA_WRITE_ATTRIBUTES|WINSTA_ACCESSCLIPBOARD|WINSTA_ACCESSGLOBALATOMS|WINSTA_CREATEDESKTOP|WINSTA_EXITWINDOWS)
 	// TODO make helper function for this call
 	defer procCloseWindowStation.Call(uintptr(hWinSta))
@@ -258,7 +267,7 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 	if err := wrappers.GetUserObjectInformation(hDesktop, UOI_NAME, uintptr(unsafe.Pointer(nil)), 0, &desktopNameLength); err != nil {
 		//return "", fmt.Errorf("could not get desktop name length, %v", err)
 		// this okay because it always says it could not get the length when it does
-		log.Printf("DEBUG: Errors from desktop Length %v", err)
+		log.Printf("DEBUG: Errors from desktop length %v", err)
 	}
 	log.Printf("DEBUG: Desktop Name Length: %v", desktopNameLength)
 	if desktopNameLength == 0 {
@@ -286,8 +295,8 @@ func (runner *DesktopRunner) GetActiveDesktop(hToken windows.Token, login bool) 
 }
 
 // Run Process does not own the token it takes, it is up to the parent caller to close the token
-func (runner *DesktopRunner) RunProcesses(processes []string, token windows.Token) error {
-	log.Printf("DEBUG: Running processes for stream and input")
+func (runner *DesktopRunner) RunProcesses(processes []string, token windows.Token, desktopName string) error {
+	log.Printf("DEBUG: Running processes on %s", desktopName)
 
 	for _, proc := range processes {
 		cmdLine, err := syscall.UTF16FromString(proc)
@@ -299,10 +308,9 @@ func (runner *DesktopRunner) RunProcesses(processes []string, token windows.Toke
 		si := &windows.StartupInfo{
 			Cb: uint32(unsafe.Sizeof(windows.StartupInfo{})),
 		}
-		//si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
-		//if !login {
-		//si.Desktop, _ = syscall.UTF16PtrFromString("winsta0\\default")
-		//}
+		if desktopName != "" {
+			si.Desktop, _ = syscall.UTF16PtrFromString(desktopName)
+		}
 
 		var pi windows.ProcessInformation
 		err = windows.CreateProcessAsUser(
@@ -329,12 +337,13 @@ func (runner *DesktopRunner) RunProcesses(processes []string, token windows.Toke
 		//}
 		//}
 
-		//var procHandles []windows.Handle
-		//procHandles = append(procHandles, pi.Process)
-		//runner.procHandles = procHandles
+		if runner.procHandles == nil {
+			runner.procHandles = []windows.Handle{}
+		}
+
+		runner.procHandles = append(runner.procHandles, pi.Process)
 
 		// Clean up handles
-		windows.CloseHandle(pi.Process)
 		windows.CloseHandle(pi.Thread)
 	}
 
@@ -348,6 +357,15 @@ func (runner *DesktopRunner) StopProcesses() {
 			log.Printf("Could not close process, assuming all is good %v", err)
 		}
 		windows.CloseHandle(h) // cleanup after stopping
+	}
+	runner.procHandles = nil
+}
+
+func (runner *DesktopRunner) ForceKill() {
+	log.Printf("DEBUG: Force killing all helpers!")
+	for _, h := range runner.procHandles {
+		windows.TerminateProcess(h, 0)
+		windows.CloseHandle(h)
 	}
 	runner.procHandles = nil
 }

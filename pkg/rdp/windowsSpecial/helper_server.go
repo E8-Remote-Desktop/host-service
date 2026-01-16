@@ -71,7 +71,7 @@ func (pipeController *WindowsNamedPipeCommunicator) Start() error {
 		return fmt.Errorf("an %s pipeController is still running", pipeController.GenericName)
 	}
 	// TODO FIXME THIS ALLOWS EVERYONE
-	sddl := "D:P(A;;GA;;;WD)(A;;GA;;;AN)"
+	sddl := "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;WD)"
 
 	pipeConfig := &winio.PipeConfig{
 		SecurityDescriptor: sddl,

@@ -62,7 +62,9 @@ func (helper *WindowsOSHelper) RestartDesktopMonitor(token windows.Token) {
 		log.Printf("WARNING, Desktop Monitor could not be closed: %v", err)
 		helper.desktopMonitor.YouAreClosedTrustMe()
 	}
-	err := helper.runner.RunProcesses([]string{fmt.Sprintf("%s -desktopmonitorhelper", helper.exePath)}, token)
+	// check this it might need to be on a desktop?
+	// "" omits desktop from si
+	err := helper.runner.RunProcesses([]string{fmt.Sprintf("%s -desktopmonitorhelper", helper.exePath)}, token, "")
 	if err != nil {
 		log.Printf("ERROR: Could not start desktop monitor with correct permissions, %v", err)
 		return
@@ -80,21 +82,33 @@ func (helper *WindowsOSHelper) RestartInteractiveServices(token windows.Token) {
 
 	// we should only need to check input (right?)
 	log.Printf("DEBUG: Restarting on new desktop")
-	if err := helper.input.Close(); err != nil {
-		log.Printf("ERROR: FAILED TO RESTART INPUT: %v; this is expected when switching users", err)
-		helper.input.YouAreClosedTrustMe()
-	}
-	if err := helper.streamer.Close(); err != nil {
-		log.Printf("WARNING: FAILED TO RESTART VIDEO/STREAMER: %v; this is expected when switching users", err)
-		helper.streamer.YouAreClosedTrustMe()
+	//if err := helper.input.Close(); err != nil {
+	//log.Printf("ERROR: FAILED TO RESTART INPUT: %v; this is expected when switching users", err)
+	//helper.input.YouAreClosedTrustMe()
+	//}
+	//if err := helper.streamer.Close(); err != nil {
+	//log.Printf("WARNING: FAILED TO RESTART VIDEO/STREAMER: %v; this is expected when switching users", err)
+	//helper.streamer.YouAreClosedTrustMe()
+	//}
+
+	helper.runner.ForceKill()
+
+	helper.input.YouAreClosedTrustMe()
+	helper.streamer.YouAreClosedTrustMe()
+
+	desktopName, err := helper.runner.GetActiveDesktop(token, true)
+	if err != nil {
+		log.Printf("Error getting active desktop, maybe use winsta? %v", err)
+		desktopName = "Winsta0\\Default"
 	}
 	// Start helpers
-	err := helper.runner.RunProcesses(
+	err = helper.runner.RunProcesses(
 		[]string{
 			fmt.Sprintf("%s -inputhelper", helper.exePath),
 			fmt.Sprintf("%s -streamhelper", helper.exePath),
 		},
 		token,
+		desktopName,
 	)
 	if err != nil {
 		log.Printf("ERROR: Could not start Stream and Input Processes with correct permissions, %v", err)
@@ -105,6 +119,7 @@ func (helper *WindowsOSHelper) RestartInteractiveServices(token windows.Token) {
 	if err := helper.streamer.Start(); err != nil {
 		log.Printf("ERROR: Could not start Stream connector: %v", err)
 	}
+	log.Printf("DEBUG: Request for start sent to  Stream Handler")
 	if err := helper.input.Start(); err != nil {
 		log.Printf("ERROR: Could not start Input connector: %v", err)
 	}
