@@ -58,13 +58,22 @@ func (helper *WindowsOSHelper) Close() error {
 // This is seperate because it only needs to restart on token change
 func (helper *WindowsOSHelper) RestartDesktopMonitor(token windows.Token) {
 	log.Printf("DEBUG: Restarting Desktop Monitoring Service")
-	if err := helper.desktopMonitor.Close(); err != nil {
-		log.Printf("WARNING, Desktop Monitor could not be closed: %v", err)
-		helper.desktopMonitor.YouAreClosedTrustMe()
+	//if err := helper.desktopMonitor.Close(); err != nil {
+	//log.Printf("WARNING, Desktop Monitor could not be closed: %v", err)
+	//helper.desktopMonitor.YouAreClosedTrustMe()
+	//}
+	helper.runner.ForceKill()
+	helper.desktopMonitor.YouAreClosedTrustMe()
+
+	desktopName, err := helper.runner.GetActiveDesktop(token, false)
+
+	if err != nil || desktopName == "" {
+		log.Printf("WARNING: Desktop Monitor starting on default desktop as it could not be polled")
+		desktopName = "Winsta0\\Default"
 	}
 	// check this it might need to be on a desktop?
 	// "" omits desktop from si
-	err := helper.runner.RunProcesses([]string{fmt.Sprintf("%s -desktopmonitorhelper", helper.exePath)}, token, "")
+	err = helper.runner.RunProcesses([]string{fmt.Sprintf("%s -desktopmonitorhelper", helper.exePath)}, token, desktopName)
 	if err != nil {
 		log.Printf("ERROR: Could not start desktop monitor with correct permissions, %v", err)
 		return
